@@ -54,6 +54,9 @@ android {
             path 'jni/Android.mk'
         }
     }
+    packagingOptions {
+        merge '**/LICENSE.txt'
+    }
 }
 
 dependencies {
