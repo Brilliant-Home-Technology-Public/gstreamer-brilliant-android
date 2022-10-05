@@ -19,16 +19,13 @@
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
-#include <string.h>
-#include <stdint.h>
-#include <jni.h>
 #include <android/log.h>
-#include <android/native_window.h>
 #include <android/native_window_jni.h>
-#include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/video/videooverlay.h>
 #include <pthread.h>
+#include "gstreamer_brilliant_android.h"
+#include "brilliant_rtsp_backend.h"
 
 GST_DEBUG_CATEGORY_STATIC (debug_category);
 #define GST_CAT_DEFAULT debug_category
@@ -49,33 +46,13 @@ GST_DEBUG_CATEGORY_STATIC (debug_category);
  * confuse some demuxers. */
 #define SEEK_MIN_DELAY (500 * GST_MSECOND)
 
-/* Structure to contain all our information, so we can pass it to callbacks */
-typedef struct _CustomData
-{
-  jobject app;                  /* Application instance, used to call its methods. A global reference is kept. */
-  GstElement *pipeline;         /* The running pipeline */
-  GstElement *rtsp_src;         /* The rtspsrc element */
-  GstElement *video_sink;       /* The video sink element which receives XOverlay commands */
-  GstElement *volume;           /* The volume element */
-  GMainContext *context;        /* GLib context used to run the main loop */
-  GMainLoop *main_loop;         /* GLib main loop */
-  gboolean initialized;         /* To avoid informing the UI multiple times about the initialization */
-  ANativeWindow *native_window; /* The Android native window where video will be rendered */
-  GstState state;               /* Current pipeline state */
-  GstState target_state;        /* Desired pipeline state, to be set once buffering is complete */
-  gint64 duration;              /* Cached clip duration */
-  gint64 desired_position;      /* Position to seek to, once the pipeline is running */
-  GstClockTime last_seek_time;  /* For seeking overflow prevention (throttling) */
-  gboolean is_live;             /* Live streams do not use buffering */
-} CustomData;
+
 
 /* These global variables cache values which are not changing during execution */
 static pthread_t gst_app_thread;
 static pthread_key_t current_jni_env;
 static JavaVM *java_vm;
 static jfieldID custom_data_field_id;
-static jfieldID another_data_field_id;
-static jfieldID string_data_field_id;
 static jmethodID set_message_method_id;
 static jmethodID set_current_position_method_id;
 static jmethodID on_gstreamer_initialized_method_id;
@@ -128,8 +105,7 @@ get_jni_env (void)
 }
 
 /* Change the content of the UI's TextView */
-static void
-set_ui_message (const gchar * message, CustomData * data)
+void set_ui_message (const gchar * message, CustomData * data)
 {
   JNIEnv *env = get_jni_env ();
   GST_DEBUG ("Setting message to: %s", message);
@@ -413,8 +389,6 @@ app_function (void *userdata)
   CustomData *data = (CustomData *) userdata;
   GSource *timeout_source;
   GSource *bus_source;
-  GError *error = NULL;
-  guint flags;
 
   GST_DEBUG ("Creating pipeline in CustomData at %p", data);
 
@@ -422,36 +396,10 @@ app_function (void *userdata)
   data->context = g_main_context_new ();
   g_main_context_push_thread_default (data->context);
 
-  /* Build pipeline */
-  char *parseLaunchString = "rtspsrc debug=true name=rtspsrc rtspsrc. ! "
-                            "rtph264depay ! h264parse ! decodebin ! "
-                            "autovideoconvert ! autovideosink "
-                            "rtspsrc. ! decodebin ! audioconvert ! "
-                            "volume name=vol ! autoaudiosink";
-
-  data->pipeline = gst_parse_launch (parseLaunchString, &error);
-  if (error) {
-    gchar *message =
-        g_strdup_printf ("Unable to build pipeline: %s", error->message);
-    g_clear_error (&error);
-    set_ui_message (message, data);
-    g_free (message);
+  int result = build_rtsp_pipeline(data);
+  if (result < 0) {
     return NULL;
   }
-
-  data->rtsp_src = gst_bin_get_by_name(GST_BIN (data->pipeline), "rtspsrc");
-  if (data->rtsp_src == NULL) {
-    GST_ERROR("Could not retrieve rtsp_src");
-  }
-  data->volume = gst_bin_get_by_name(GST_BIN (data->pipeline), "vol");
-  if (data->volume == NULL) {
-    GST_ERROR("Could not retrieve volume");
-  } else {
-    g_object_set(data->volume, "mute", FALSE, NULL);
-  }
-
-  g_object_set(data->rtsp_src, "protocols", 0x4, NULL);
-  g_object_set(data->rtsp_src, "tcp-timeout",(guint64)1000000*15, NULL); // In microseconds
 
   /* Set the pipeline to READY, so it can already accept a window handle, if we have one */
   data->target_state = GST_STATE_READY;
