@@ -562,6 +562,84 @@ gst_native_set_uri (JNIEnv * env, jobject thiz, jstring uri)
           data->target_state) == GST_STATE_CHANGE_NO_PREROLL);
 }
 
+void
+gst_native_set_rtp_track_properties(JNIEnv *env, jobject thiz, jstring track_name,
+                                    jstring server, int track_port,
+                                    jbyteArray track_key, int track_ssrc,
+                                    int sample_rate, int payload_type, int channels)
+{
+  CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
+  if (strcmp(data->backend_type, backend_type_custom_rtp) != 0) {
+    GST_ERROR("Native set rtp track properties called on pipeline with type %s.",
+              data->backend_type);
+    return;
+  }
+  const char *_trackName = (*env)->GetStringUTFChars(env, track_name, 0);
+  const char *_server = (*env)->GetStringUTFChars(env, server, 0);
+  jbyte* key_bytes = (*env)->GetByteArrayElements(env, track_key, NULL);
+  jsize track_key_len = (*env)->GetArrayLength(env, track_key);
+
+  if (strncmp(_trackName, "incoming_video", strlen(_trackName)) == 0) {
+    // Copy allocated types
+    data->rtp_custom_data->incoming_video_server = malloc(strlen(_server));
+    strcpy(data->rtp_custom_data->incoming_video_server, _server);
+    data->rtp_custom_data->incoming_video_key = byte_array_to_buffer(key_bytes, track_key_len);
+    GST_DEBUG ("Incoming Video Track uri to %s", data->rtp_custom_data->incoming_video_server);
+
+    // Assign primitive types
+    data->rtp_custom_data->incoming_video_ssrc = track_ssrc;
+    data->rtp_custom_data->incoming_video_port = track_port;
+    data->rtp_custom_data->incoming_video_sample_rate = sample_rate;
+    data->rtp_custom_data->incoming_video_payload_type = payload_type;
+  } else if (strncmp(_trackName, "incoming_audio", strlen(_trackName)) == 0) {
+    // Copy allocated types
+    data->rtp_custom_data->incoming_audio_server = malloc(strlen(_server));
+    strcpy(data->rtp_custom_data->incoming_audio_server, _server);
+    data->rtp_custom_data->incoming_audio_key = byte_array_to_buffer(key_bytes, track_key_len);
+    GST_DEBUG ("Incoming Audio Track uri to %s", data->rtp_custom_data->incoming_audio_server);
+
+    // Assign primitive types
+    data->rtp_custom_data->incoming_audio_ssrc = track_ssrc;
+    data->rtp_custom_data->incoming_audio_port = track_port;
+    data->rtp_custom_data->incoming_audio_sample_rate = sample_rate;
+    data->rtp_custom_data->incoming_audio_payload_type = payload_type;
+    data->rtp_custom_data->incoming_audio_channels = channels;
+  } else if (strncmp(_trackName, "outgoing_audio", strlen(_trackName)) == 0) {
+    // Copy allocated types
+
+    data->rtp_custom_data->outgoing_audio_server = malloc(strlen(_server));
+    strcpy(data->rtp_custom_data->outgoing_audio_server, _server);
+    data->rtp_custom_data->outgoing_audio_key = byte_array_to_buffer(key_bytes, track_key_len);
+    GST_DEBUG ("Outgoing Audio Track uri to %s", data->rtp_custom_data->outgoing_audio_server);
+    // Assign primitive types
+    data->rtp_custom_data->outgoing_audio_ssrc = track_ssrc;
+    data->rtp_custom_data->outgoing_audio_port = track_port;
+    data->rtp_custom_data->outgoing_audio_sample_rate = sample_rate;
+    data->rtp_custom_data->outgoing_audio_payload_type = payload_type;
+    data->rtp_custom_data->audio_channels = channels;
+  }
+  (*env)->ReleaseByteArrayElements(env, track_key, key_bytes, JNI_ABORT);
+  (*env)->ReleaseStringUTFChars(env, track_name, _trackName);
+  (*env)->ReleaseStringUTFChars(env, server, _server);
+}
+
+void gst_native_set_rtp_local_ports(JNIEnv *env, jobject thiz,
+                                    int local_rtp_video_udp_port, int local_rtcp_video_udp_port,
+                                    int local_rtp_audio_udp_port, int local_rtcp_audio_udp_port)
+{
+  CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
+  if (strcmp(data->backend_type, backend_type_custom_rtp) != 0) {
+    GST_ERROR("Native set rtp local ports called on pipeline with type %s.",
+              data->backend_type);
+    return;
+  }
+  data->rtp_custom_data->local_rtp_video_udp_port = local_rtp_video_udp_port;
+  data->rtp_custom_data->local_rtcp_video_udp_port = local_rtcp_video_udp_port;
+  data->rtp_custom_data->local_rtp_audio_udp_port = local_rtp_audio_udp_port;
+  data->rtp_custom_data->local_rtcp_audio_udp_port = local_rtcp_audio_udp_port;
+
+}
+
 /* Set volume's mute property */
 void
 gst_native_set_mute (JNIEnv *env, jobject thiz, jboolean mute)
@@ -715,6 +793,9 @@ static JNINativeMethod native_methods[] = {
   {"nativeInit", "(Ljava/lang/String;)V", (void *) gst_native_init},
   {"nativeFinalize", "()V", (void *) gst_native_finalize},
   {"nativeSetUri", "(Ljava/lang/String;)V", (void *) gst_native_set_uri},
+  {"nativeSetRTPTrackProperties", "(Ljava/lang/String;Ljava/lang/String;I[BIIII)V",
+      (void *) gst_native_set_rtp_track_properties},
+  {"nativeSetRTPLocalPorts", "(IIII)V", (void *) gst_native_set_rtp_local_ports},
   {"nativePlay", "()V", (void *) gst_native_play},
   {"nativePause", "()V", (void *) gst_native_pause},
   {"nativeSetMute", "(Z)V", (void *) gst_native_set_mute},
