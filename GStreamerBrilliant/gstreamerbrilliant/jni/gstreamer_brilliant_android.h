@@ -28,25 +28,65 @@
 #include <gst/gst.h>
 #include <android/native_window.h>
 
+/* Structure to contain all our Custom RTP Backend information,
+ * when applicable.
+ * We will also store and additional element and pipeline handles specific to this
+ * pipeline type here.
+ * */
+typedef struct _RTPCustomData
+{
+  GstElement *out_audio_data_pipe;    /* The running outgoing pipeline */
+  GstElement *audio_depay;            /* The audio depay element we will link the rtp src pad to */
+  GstElement *video_depay;            /* The video depay element we will link the rtp src pad to */
+  GstElement *mic_volume;             /* Volume element for muting and adjusting stream volume */
+  GstElement *rtp_bin;                /* RTP Bin element */
+  GstElement *video_data_pipe;        /* Incoming video data pipe */
+
+  int local_rtp_video_udp_port;
+  int local_rtcp_video_udp_port;
+  int local_rtp_audio_udp_port;
+  int local_rtcp_audio_udp_port;
+  gchar *incoming_video_server;
+  gchar *incoming_audio_server;
+  gchar *outgoing_audio_server;
+  int incoming_video_sample_rate;
+  int incoming_audio_sample_rate;
+  int outgoing_audio_sample_rate;
+  int incoming_video_payload_type;
+  int incoming_audio_payload_type;
+  int outgoing_audio_payload_type;
+  GstBuffer *incoming_video_key;
+  GstBuffer *incoming_audio_key;
+  GstBuffer *outgoing_audio_key;
+  int incoming_video_ssrc;
+  int incoming_audio_ssrc;
+  int outgoing_audio_ssrc;
+  int incoming_video_port;
+  int incoming_audio_port;
+  int outgoing_audio_port;
+  int incoming_audio_channels;
+  int audio_channels;
+} RTPCustomData;
 
 /* Structure to contain all our information, so we can pass it to callbacks */
 typedef struct _CustomData
 {
-    jobject app;                  /* Application instance, used to call its methods. A global reference is kept. */
-    GstElement *pipeline;         /* The running pipeline */
-    GstElement *rtsp_src;         /* The rtspsrc element */
-    GstElement *video_sink;       /* The video sink element which receives XOverlay commands */
-    GstElement *volume;           /* The volume element */
-    GMainContext *context;        /* GLib context used to run the main loop */
-    GMainLoop *main_loop;         /* GLib main loop */
-    gboolean initialized;         /* To avoid informing the UI multiple times about the initialization */
-    ANativeWindow *native_window; /* The Android native window where video will be rendered */
-    GstState state;               /* Current pipeline state */
-    GstState target_state;        /* Desired pipeline state, to be set once buffering is complete */
-    gint64 duration;              /* Cached clip duration */
-    gint64 desired_position;      /* Position to seek to, once the pipeline is running */
-    GstClockTime last_seek_time;  /* For seeking overflow prevention (throttling) */
-    gboolean is_live;             /* Live streams do not use buffering */
+    jobject app;                    /* Application instance, used to call its methods. A global reference is kept. */
+    GstElement *pipeline;           /* The running pipeline */
+    GstElement *rtsp_src;           /* The rtspsrc element */
+    GstElement *video_sink;         /* The video sink element which receives XOverlay commands */
+    GstElement *volume;             /* The volume element */
+    GMainContext *context;          /* GLib context used to run the main loop */
+    GMainLoop *main_loop;           /* GLib main loop */
+    RTPCustomData *rtp_custom_data; /* Data used by Custom RTP pipeline */
+    gboolean initialized;           /* To avoid informing the UI multiple times about the initialization */
+    ANativeWindow *native_window;   /* The Android native window where video will be rendered */
+    GstState state;                 /* Current pipeline state */
+    GstState target_state;          /* Desired pipeline state, to be set once buffering is complete */
+    gint64 duration;                /* Cached clip duration */
+    gint64 desired_position;        /* Position to seek to, once the pipeline is running */
+    GstClockTime last_seek_time;    /* For seeking overflow prevention (throttling) */
+    gboolean is_live;               /* Live streams do not use buffering */
 } CustomData;
 void set_ui_message (const gchar * message, CustomData * data);
 #endif //GSTREAMERBRILLIANT_GSTREAMER_BRILLIANT_ANDROID_H

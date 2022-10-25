@@ -61,6 +61,12 @@ static jmethodID on_media_size_changed_method_id;
 /*
  * Private methods
  */
+static GstBuffer * byte_array_to_buffer(jbyte *data, int data_len) {
+  gpointer buffer_data = g_memdup(data, data_len);
+  // Takes ownership of allocated memory
+  GstBuffer *buffer = gst_buffer_new_wrapped(buffer_data, data_len);
+  return buffer;
+}
 
 /* Register this thread with the VM */
 static JNIEnv *
@@ -450,6 +456,17 @@ app_function (void *userdata)
   gst_object_unref (data->video_sink);
   gst_object_unref (data->pipeline);
 
+  data->video_sink = NULL;
+  data->volume = NULL;
+  if (data->rtp_custom_data) {
+    data->rtp_custom_data->out_audio_data_pipe = NULL;
+    data->rtp_custom_data->rtp_bin = NULL;
+    data->rtp_custom_data->video_depay = NULL;
+    data->rtp_custom_data->video_data_pipe = NULL;
+    data->rtp_custom_data->audio_depay = NULL;
+    data->rtp_custom_data->mic_volume = NULL;
+    GST_DEBUG ("Removed references to RtpCustomData pipeline elements");
+  }
   return NULL;
 }
 
@@ -462,6 +479,7 @@ static void
 gst_native_init (JNIEnv * env, jobject thiz)
 {
   CustomData *data = g_new0 (CustomData, 1);
+  data->rtp_custom_data = NULL;
   data->desired_position = GST_CLOCK_TIME_NONE;
   data->last_seek_time = GST_CLOCK_TIME_NONE;
   SET_CUSTOM_DATA (env, thiz, custom_data_field_id, data);
@@ -487,6 +505,12 @@ gst_native_finalize (JNIEnv * env, jobject thiz)
   pthread_join (gst_app_thread, NULL);
   GST_DEBUG ("Deleting GlobalRef for app object at %p", data->app);
   (*env)->DeleteGlobalRef (env, data->app);
+  if (data->rtp_custom_data) {
+    GST_DEBUG ("Freeing RtpCustomData at %p", data->rtp_custom_data);
+    cleanup_custom_rtp_data(data->rtp_custom_data);
+    g_free(data->rtp_custom_data);
+    data->rtp_custom_data = NULL;
+  }
   GST_DEBUG ("Freeing CustomData at %p", data);
   g_free (data);
   SET_CUSTOM_DATA (env, thiz, custom_data_field_id, NULL);

@@ -3,8 +3,8 @@ LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_MODULE    := gstreamer
-LOCAL_SRC_FILES := gstreamer_brilliant_android.c brilliant_rtsp_backend.c dummy.cpp
-LOCAL_C_INCLUDES := gstreamer_brilliant_android.h brilliant_rtsp_backend.h
+LOCAL_SRC_FILES := gstreamer_brilliant_android.c brilliant_rtsp_backend.c brilliant_custom_rtp_backend.c dummy.cpp
+LOCAL_C_INCLUDES := gstreamer_brilliant_android.h brilliant_rtsp_backend.h brilliant_custom_rtp_backend.h
 LOCAL_SHARED_LIBRARIES := gstreamer_android
 LOCAL_LDLIBS := -llog -landroid
 include $(BUILD_SHARED_LIBRARY)
