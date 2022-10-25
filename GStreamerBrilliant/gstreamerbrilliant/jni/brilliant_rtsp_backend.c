@@ -25,36 +25,41 @@
 
 int build_rtsp_pipeline(CustomData *data)
 {
-    GError *error = NULL;
-    /* Build pipeline */
-    char *parseLaunchString = "rtspsrc debug=true name=rtspsrc rtspsrc. ! "
-                              "rtph264depay ! h264parse ! decodebin ! "
-                              "autovideoconvert ! autovideosink "
-                              "rtspsrc. ! decodebin ! audioconvert ! "
-                              "volume name=vol ! autoaudiosink";
+  RTSPData *rtsp_data = data->rtsp_data;
+  if (rtsp_data == NULL) {
+    GST_ERROR("RTSPData struct missing when setting up pipeline, aborting.");
+    return -1;
+  }
+  GError *error = NULL;
+  /* Build pipeline */
+  char *parseLaunchString = "rtspsrc debug=true name=rtspsrc rtspsrc. ! "
+                            "rtph264depay ! h264parse ! decodebin ! "
+                            "autovideoconvert ! autovideosink "
+                            "rtspsrc. ! decodebin ! audioconvert ! "
+                            "volume name=vol ! autoaudiosink";
 
-    data->pipeline = gst_parse_launch (parseLaunchString, &error);
-    if (error) {
-        gchar *message =
-                g_strdup_printf ("Unable to build pipeline: %s", error->message);
-        g_clear_error (&error);
-        set_ui_message (message, data);
-        g_free (message);
-        return -1;
-    }
+  data->pipeline = gst_parse_launch (parseLaunchString, &error);
+  if (error) {
+      gchar *message =
+              g_strdup_printf ("Unable to build pipeline: %s", error->message);
+      g_clear_error (&error);
+      set_ui_message (message, data);
+      g_free (message);
+      return -1;
+  }
 
-    data->rtsp_src = gst_bin_get_by_name(GST_BIN (data->pipeline), "rtspsrc");
-    if (data->rtsp_src == NULL) {
-        GST_ERROR("Could not retrieve rtsp_src");
-    }
-    data->volume = gst_bin_get_by_name(GST_BIN (data->pipeline), "vol");
-    if (data->volume == NULL) {
-        GST_ERROR("Could not retrieve volume");
-    } else {
-        g_object_set(data->volume, "mute", FALSE, NULL);
-    }
+  rtsp_data->rtsp_src = gst_bin_get_by_name(GST_BIN (data->pipeline), "rtspsrc");
+  if (rtsp_data->rtsp_src == NULL) {
+      GST_ERROR("Could not retrieve rtsp_src");
+  }
+  data->volume = gst_bin_get_by_name(GST_BIN (data->pipeline), "vol");
+  if (data->volume == NULL) {
+      GST_ERROR("Could not retrieve volume");
+  } else {
+      g_object_set(data->volume, "mute", FALSE, NULL);
+  }
 
-    g_object_set(data->rtsp_src, "protocols", 0x4, NULL);
-    g_object_set(data->rtsp_src, "tcp-timeout",(guint64)1000000*15, NULL); // In microseconds
-    return 1;
+  g_object_set(rtsp_data->rtsp_src, "protocols", 0x4, NULL);
+  g_object_set(rtsp_data->rtsp_src, "tcp-timeout",(guint64)1000000*15, NULL); // In microseconds
+  return 1;
 }

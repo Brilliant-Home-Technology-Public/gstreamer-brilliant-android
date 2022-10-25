@@ -464,12 +464,13 @@ app_function (void *userdata)
   g_main_context_unref (data->context);
   data->target_state = GST_STATE_NULL;
   gst_element_set_state (data->pipeline, GST_STATE_NULL);
-  gst_object_unref (data->rtsp_src);
-  gst_object_unref (data->volume);
-  gst_object_unref (data->video_sink);
   gst_object_unref (data->pipeline);
   free(data->backend_type);
 
+  if (data->rtsp_data) {
+    data->rtsp_data->rtsp_src = NULL;
+    GST_DEBUG ("Removed references to RtspData pipeline elements");
+  }
   data->video_sink = NULL;
   data->volume = NULL;
   if (data->rtp_custom_data) {
@@ -506,7 +507,11 @@ gst_native_init (JNIEnv *env, jobject thiz, jstring backend_type)
   GST_DEBUG ("Created CustomData for backendType %s at %p", data->backend_type, data);
   (*env)->ReleaseStringUTFChars (env, backend_type, backend_string);
   if (strcmp(data->backend_type, backend_type_custom_rtp) == 0) {
-    data->rtp_custom_data = g_new0 (RTPCustomData , 1);
+    data->rtp_custom_data = g_new0 (RTPCustomData, 1);
+    data->rtsp_data = NULL;
+  } else if (strcmp(data->backend_type, backend_type_rtsp) == 0) {
+    data->rtsp_data = g_new0 (RTSPData, 1);
+    data->rtp_custom_data = NULL;
   }
   data->app = (*env)->NewGlobalRef (env, thiz);
   GST_DEBUG ("Created GlobalRef for app object at %p", data->app);
@@ -532,6 +537,11 @@ gst_native_finalize (JNIEnv *env, jobject thiz)
     g_free(data->rtp_custom_data);
     data->rtp_custom_data = NULL;
   }
+  if (data->rtsp_data) {
+    GST_DEBUG ("Freeing RtspData at %p", data->rtsp_data);
+    g_free(data->rtsp_data);
+    data->rtsp_data = NULL;
+  }
   GST_DEBUG ("Freeing CustomData at %p", data);
   g_free (data);
   SET_CUSTOM_DATA (env, thiz, custom_data_field_id, NULL);
@@ -555,7 +565,7 @@ gst_native_set_uri (JNIEnv *env, jobject thiz, jstring uri)
   GST_DEBUG ("Setting rtspsrc URI to %s", char_uri);
   if (data->target_state >= GST_STATE_READY)
     gst_element_set_state (data->pipeline, GST_STATE_READY);
-  g_object_set (data->rtsp_src, "location", char_uri, NULL);
+  g_object_set (data->rtsp_data->rtsp_src, "location", char_uri, NULL);
   (*env)->ReleaseStringUTFChars (env, uri, char_uri);
   data->duration = GST_CLOCK_TIME_NONE;
   data->is_live |=

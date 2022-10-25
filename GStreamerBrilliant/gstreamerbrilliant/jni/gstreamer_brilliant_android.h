@@ -68,18 +68,29 @@ typedef struct _RTPCustomData
   int audio_channels;
 } RTPCustomData;
 
-/* Structure to contain all our information, so we can pass it to callbacks */
+/* Structure to contain all our RTSP Backend information,
+ * when applicable.
+ * We will also store and additional element and pipeline handles specific to this
+ * pipeline type here.
+ * */
+typedef struct _RTSPData {
+  GstElement *rtsp_src;           /* The rtspsrc element */
+} RTSPData;
+
+/* Structure to contain all our information common to all backend types,
+ * so we can pass it to callbacks
+ * */
 typedef struct _CustomData
 {
     jobject app;                    /* Application instance, used to call its methods. A global reference is kept. */
     gchar *backend_type;            /* String constant identifying the backend pipeline */
     GstElement *pipeline;           /* The running pipeline */
-    GstElement *rtsp_src;           /* The rtspsrc element */
     GstElement *video_sink;         /* The video sink element which receives XOverlay commands */
     GstElement *volume;             /* The volume element */
     GMainContext *context;          /* GLib context used to run the main loop */
     GMainLoop *main_loop;           /* GLib main loop */
     RTPCustomData *rtp_custom_data; /* Data used by Custom RTP pipeline */
+    RTSPData *rtsp_data;            /* Data used by RTSP pipeline */
     gboolean initialized;           /* To avoid informing the UI multiple times about the initialization */
     ANativeWindow *native_window;   /* The Android native window where video will be rendered */
     GstState state;                 /* Current pipeline state */
