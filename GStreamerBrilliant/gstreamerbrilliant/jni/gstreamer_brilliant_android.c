@@ -26,6 +26,7 @@
 #include <pthread.h>
 #include "gstreamer_brilliant_android.h"
 #include "brilliant_rtsp_backend.h"
+#include "brilliant_custom_rtp_backend.h"
 
 GST_DEBUG_CATEGORY_STATIC (debug_category);
 #define GST_CAT_DEFAULT debug_category
@@ -489,7 +490,7 @@ app_function (void *userdata)
 
 /* Instruct the native code to create its internal data structure, pipeline and thread */
 static void
-gst_native_init (JNIEnv * env, jobject thiz, jstring backend_type)
+gst_native_init (JNIEnv *env, jobject thiz, jstring backend_type)
 {
   CustomData *data = g_new0 (CustomData, 1);
   data->rtp_custom_data = NULL;
@@ -514,7 +515,7 @@ gst_native_init (JNIEnv * env, jobject thiz, jstring backend_type)
 
 /* Quit the main loop, remove the native thread and free resources */
 static void
-gst_native_finalize (JNIEnv * env, jobject thiz)
+gst_native_finalize (JNIEnv *env, jobject thiz)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
@@ -539,7 +540,7 @@ gst_native_finalize (JNIEnv * env, jobject thiz)
 
 /* Set rtspsrc's URI */
 void
-gst_native_set_uri (JNIEnv * env, jobject thiz, jstring uri)
+gst_native_set_uri (JNIEnv *env, jobject thiz, jstring uri)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data || !data->pipeline) {
@@ -669,7 +670,7 @@ gst_native_set_debug_logging (JNIEnv *env, jobject thiz, jstring gstDebugString)
 
 /* Set pipeline to PLAYING state */
 static void
-gst_native_play (JNIEnv * env, jobject thiz)
+gst_native_play (JNIEnv *env, jobject thiz)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
@@ -683,7 +684,7 @@ gst_native_play (JNIEnv * env, jobject thiz)
 
 /* Set pipeline to PAUSED state */
 static void
-gst_native_pause (JNIEnv * env, jobject thiz)
+gst_native_pause (JNIEnv *env, jobject thiz)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
@@ -697,7 +698,7 @@ gst_native_pause (JNIEnv * env, jobject thiz)
 
 /* Instruct the pipeline to seek to a different position */
 void
-gst_native_set_position (JNIEnv * env, jobject thiz, int milliseconds)
+gst_native_set_position (JNIEnv *env, jobject thiz, int milliseconds)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
@@ -714,7 +715,7 @@ gst_native_set_position (JNIEnv * env, jobject thiz, int milliseconds)
 
 /* Static class initializer: retrieve method and field IDs */
 static jboolean
-gst_native_class_init (JNIEnv * env, jclass klass)
+gst_native_class_init (JNIEnv *env, jclass klass)
 {
   custom_data_field_id =
       (*env)->GetFieldID (env, klass, "nativeCustomData", "J");
@@ -741,7 +742,7 @@ gst_native_class_init (JNIEnv * env, jclass klass)
 }
 
 static void
-gst_native_surface_init (JNIEnv * env, jobject thiz, jobject surface)
+gst_native_surface_init (JNIEnv *env, jobject thiz, jobject surface)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
@@ -770,7 +771,7 @@ gst_native_surface_init (JNIEnv * env, jobject thiz, jobject surface)
 }
 
 static void
-gst_native_surface_finalize (JNIEnv * env, jobject thiz)
+gst_native_surface_finalize (JNIEnv *env, jobject thiz)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
