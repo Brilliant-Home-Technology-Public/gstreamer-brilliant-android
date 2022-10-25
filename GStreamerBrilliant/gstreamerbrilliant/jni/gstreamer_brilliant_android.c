@@ -58,6 +58,10 @@ static jmethodID set_current_position_method_id;
 static jmethodID on_gstreamer_initialized_method_id;
 static jmethodID on_media_size_changed_method_id;
 
+/* These global constants are used to evaluate against backend_type strings */
+static const char backend_type_rtsp[] = "rtsp";
+static const char backend_type_custom_rtp[] = "custom_rtp";
+
 /*
  * Private methods
  */
@@ -376,12 +380,13 @@ check_initialization_complete (CustomData * data)
     /* The main loop is running and we received a native window, inform the sink about it */
     gst_video_overlay_set_window_handle (GST_VIDEO_OVERLAY (data->video_sink),
         (guintptr) data->native_window);
-
-    (*env)->CallVoidMethod (env, data->app, on_gstreamer_initialized_method_id);
+    jstring jbackend_type = (*env)->NewStringUTF (env, data->backend_type);
+    (*env)->CallVoidMethod (env, data->app, on_gstreamer_initialized_method_id, jbackend_type);
     if ((*env)->ExceptionCheck (env)) {
       GST_ERROR ("Failed to call Java method");
       (*env)->ExceptionClear (env);
     }
+    (*env)->DeleteLocalRef (env, jbackend_type);
     data->initialized = TRUE;
   }
 }
@@ -402,7 +407,14 @@ app_function (void *userdata)
   data->context = g_main_context_new ();
   g_main_context_push_thread_default (data->context);
 
-  int result = build_rtsp_pipeline(data);
+  int result = -1;
+  if (strcmp(data->backend_type, backend_type_rtsp) == 0) {
+    result = build_rtsp_pipeline(data);
+  } else if (strcmp(data->backend_type, backend_type_custom_rtp) == 0) {
+    result = build_custom_rtp_pipeline(data);
+  } else {
+    GST_ERROR("Unrecognized backend type %s, aborting pipeline creation.", data->backend_type);
+  }
   if (result < 0) {
     return NULL;
   }
@@ -455,6 +467,7 @@ app_function (void *userdata)
   gst_object_unref (data->volume);
   gst_object_unref (data->video_sink);
   gst_object_unref (data->pipeline);
+  free(data->backend_type);
 
   data->video_sink = NULL;
   data->volume = NULL;
@@ -476,7 +489,7 @@ app_function (void *userdata)
 
 /* Instruct the native code to create its internal data structure, pipeline and thread */
 static void
-gst_native_init (JNIEnv * env, jobject thiz)
+gst_native_init (JNIEnv * env, jobject thiz, jstring backend_type)
 {
   CustomData *data = g_new0 (CustomData, 1);
   data->rtp_custom_data = NULL;
@@ -486,7 +499,14 @@ gst_native_init (JNIEnv * env, jobject thiz)
   GST_DEBUG_CATEGORY_INIT (debug_category, "gstreamer-brilliant", 0,
       "GStreamer Brilliant");
   gst_debug_set_threshold_for_name ("gstreamer-brilliant", GST_LEVEL_DEBUG);
-  GST_DEBUG ("Created CustomData at %p", data);
+  const gchar *backend_string = (*env)->GetStringUTFChars (env, backend_type, NULL);
+  data->backend_type = malloc(strlen(backend_string));
+  strcpy(data->backend_type, backend_string);
+  GST_DEBUG ("Created CustomData for backendType %s at %p", data->backend_type, data);
+  (*env)->ReleaseStringUTFChars (env, backend_type, backend_string);
+  if (strcmp(data->backend_type, backend_type_custom_rtp) == 0) {
+    data->rtp_custom_data = g_new0 (RTPCustomData , 1);
+  }
   data->app = (*env)->NewGlobalRef (env, thiz);
   GST_DEBUG ("Created GlobalRef for app object at %p", data->app);
   pthread_create (&gst_app_thread, NULL, &app_function, data);
@@ -524,6 +544,10 @@ gst_native_set_uri (JNIEnv * env, jobject thiz, jstring uri)
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data || !data->pipeline) {
     GST_DEBUG ("Missing Pipeline or data, aborting set URI");
+    return;
+  }
+  if (strcmp(data->backend_type, backend_type_rtsp) != 0) {
+    GST_ERROR("Set URI called on backend type %s", data->backend_type);
     return;
   }
   const gchar *char_uri = (*env)->GetStringUTFChars (env, uri, NULL);
@@ -621,7 +645,7 @@ gst_native_class_init (JNIEnv * env, jclass klass)
   set_current_position_method_id =
       (*env)->GetMethodID (env, klass, "setCurrentPosition", "(II)V");
   on_gstreamer_initialized_method_id =
-      (*env)->GetMethodID (env, klass, "onGStreamerInitialized", "()V");
+      (*env)->GetMethodID (env, klass, "onGStreamerInitialized", "(Ljava/lang/String;)V");
   on_media_size_changed_method_id =
       (*env)->GetMethodID (env, klass, "onMediaSizeChanged", "(II)V");
 
@@ -688,7 +712,7 @@ gst_native_surface_finalize (JNIEnv * env, jobject thiz)
 
 /* List of implemented native methods */
 static JNINativeMethod native_methods[] = {
-  {"nativeInit", "()V", (void *) gst_native_init},
+  {"nativeInit", "(Ljava/lang/String;)V", (void *) gst_native_init},
   {"nativeFinalize", "()V", (void *) gst_native_finalize},
   {"nativeSetUri", "(Ljava/lang/String;)V", (void *) gst_native_set_uri},
   {"nativePlay", "()V", (void *) gst_native_play},

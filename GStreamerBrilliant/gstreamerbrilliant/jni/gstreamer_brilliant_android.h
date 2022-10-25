@@ -72,6 +72,7 @@ typedef struct _RTPCustomData
 typedef struct _CustomData
 {
     jobject app;                    /* Application instance, used to call its methods. A global reference is kept. */
+    gchar *backend_type;            /* String constant identifying the backend pipeline */
     GstElement *pipeline;           /* The running pipeline */
     GstElement *rtsp_src;           /* The rtspsrc element */
     GstElement *video_sink;         /* The video sink element which receives XOverlay commands */
