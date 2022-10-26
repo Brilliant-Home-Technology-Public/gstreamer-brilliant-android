@@ -672,9 +672,9 @@ gst_native_set_mute (JNIEnv *env, jobject thiz, jboolean mute)
  * Setting it to empty string will disable
  * */
 void
-gst_native_set_debug_logging (JNIEnv *env, jobject thiz, jstring gstDebugString)
+gst_native_set_debug_logging (JNIEnv *env, jobject thiz, jstring gst_debug_string)
 {
-    const gchar *char_gstdebug = (*env)->GetStringUTFChars (env, gstDebugString, NULL);
+    const gchar *char_gstdebug = (*env)->GetStringUTFChars (env, gst_debug_string, NULL);
     setenv("GST_DEBUG", char_gstdebug, 1);
 }
 
