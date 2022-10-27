@@ -147,7 +147,6 @@ set_current_ui_position (gint position, gint duration, CustomData * data)
 static gboolean
 refresh_ui (CustomData * data)
 {
-  gint64 current = -1;
   gint64 position;
 
   /* We do not want to update anything unless we have a working pipeline in the PAUSED or PLAYING state */
@@ -408,7 +407,7 @@ app_function (void *userdata)
   data->context = g_main_context_new ();
   g_main_context_push_thread_default (data->context);
 
-  int result = -1;
+  int result = FALSE;
   if (strcmp(data->backend_type, backend_type_rtsp) == 0) {
     result = build_rtsp_pipeline(data);
   } else if (strcmp(data->backend_type, backend_type_custom_rtp) == 0) {
@@ -416,7 +415,7 @@ app_function (void *userdata)
   } else {
     GST_ERROR("Unrecognized backend type %s, aborting pipeline creation.", data->backend_type);
   }
-  if (result < 0) {
+  if (!result) {
     return NULL;
   }
 

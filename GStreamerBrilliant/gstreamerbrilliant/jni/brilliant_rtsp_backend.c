@@ -28,7 +28,7 @@ int build_rtsp_pipeline(CustomData *data)
   RTSPData *rtsp_data = data->rtsp_data;
   if (rtsp_data == NULL) {
     GST_ERROR("RTSPData struct missing when setting up pipeline, aborting.");
-    return -1;
+    return FALSE;
   }
   GError *error = NULL;
   /* Build pipeline */
@@ -45,7 +45,7 @@ int build_rtsp_pipeline(CustomData *data)
       g_clear_error (&error);
       set_ui_message (message, data);
       g_free (message);
-      return -1;
+      return FALSE;
   }
 
   rtsp_data->rtsp_src = gst_bin_get_by_name(GST_BIN (data->pipeline), "rtspsrc");
@@ -61,5 +61,5 @@ int build_rtsp_pipeline(CustomData *data)
 
   g_object_set(rtsp_data->rtsp_src, "protocols", 0x4, NULL);
   g_object_set(rtsp_data->rtsp_src, "tcp-timeout",(guint64)1000000*15, NULL); // In microseconds
-  return 1;
+  return TRUE;
 }
