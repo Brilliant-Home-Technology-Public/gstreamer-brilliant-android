@@ -731,6 +731,15 @@ gst_native_play (JNIEnv *env, jobject thiz)
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
     return;
+
+  if (strcmp(data->backend_type, backend_type_custom_rtp) == 0) {
+    // Custom RTP Backend type expects track info to be set at this point.
+    if (!complete_custom_rtp_track_pipeline_setup(data)) {
+      GST_ERROR("Custom RTP Track pipeline setup failed (likely due to missing track info). Aborting pipeline play.");
+      return;
+    }
+  }
+
   GST_DEBUG ("Setting state to PLAYING");
   data->target_state = GST_STATE_PLAYING;
   data->is_live |=

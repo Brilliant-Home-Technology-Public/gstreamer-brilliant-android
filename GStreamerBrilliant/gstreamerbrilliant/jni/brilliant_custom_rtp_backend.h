@@ -25,6 +25,7 @@
 #include "gstreamer_brilliant_android.h"
 
 int build_custom_rtp_pipeline(CustomData *data);
+int complete_custom_rtp_track_pipeline_setup(CustomData *data);
 void cleanup_custom_rtp_data(RTPCustomData *rtp_custom_data);
 
 #endif //GSTREAMERBRILLIANT_BRILLIANT_CUSTOM_RTP_BACKEND_H
