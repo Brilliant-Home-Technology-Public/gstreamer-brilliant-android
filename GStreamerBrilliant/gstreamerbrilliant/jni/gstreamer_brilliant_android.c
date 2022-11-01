@@ -700,6 +700,7 @@ gst_native_set_debug_logging (JNIEnv *env, jobject thiz, jstring gst_debug_strin
 {
     const gchar *char_gstdebug = (*env)->GetStringUTFChars (env, gst_debug_string, NULL);
     setenv("GST_DEBUG", char_gstdebug, 1);
+    gst_debug_set_default_threshold(GST_LEVEL_DEBUG);
 }
 
 /* Set pipeline to PLAYING state */
