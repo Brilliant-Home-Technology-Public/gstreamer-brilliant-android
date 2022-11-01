@@ -58,9 +58,9 @@ typedef struct _RTPCustomData
   GstBuffer *incoming_video_key;
   GstBuffer *incoming_audio_key;
   GstBuffer *outgoing_audio_key;
-  int incoming_video_ssrc;
-  int incoming_audio_ssrc;
-  int outgoing_audio_ssrc;
+  uint32_t incoming_video_ssrc;
+  uint32_t incoming_audio_ssrc;
+  uint32_t outgoing_audio_ssrc;
   int incoming_video_port;
   int incoming_audio_port;
   int outgoing_audio_port;

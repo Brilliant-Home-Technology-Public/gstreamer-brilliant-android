@@ -27,6 +27,7 @@
 #include "gstreamer_brilliant_android.h"
 #include "brilliant_rtsp_backend.h"
 #include "brilliant_custom_rtp_backend.h"
+#include "inttypes.h"
 
 GST_DEBUG_CATEGORY_STATIC (debug_category);
 #define GST_CAT_DEFAULT debug_category
@@ -575,7 +576,7 @@ gst_native_set_uri (JNIEnv *env, jobject thiz, jstring uri)
 void
 gst_native_set_rtp_track_properties(JNIEnv *env, jobject thiz, jstring track_name,
                                     jstring server, int track_port,
-                                    jbyteArray track_key, int track_ssrc,
+                                    jbyteArray track_key, long track_ssrc,
                                     int sample_rate, int payload_type, int channels)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
@@ -597,10 +598,18 @@ gst_native_set_rtp_track_properties(JNIEnv *env, jobject thiz, jstring track_nam
     GST_DEBUG ("Incoming Video Track uri to %s", data->rtp_custom_data->incoming_video_server);
 
     // Assign primitive types
-    data->rtp_custom_data->incoming_video_ssrc = track_ssrc;
+    // Convert signed 64bit int to unsigned 32bit
+    data->rtp_custom_data->incoming_video_ssrc = track_ssrc & 0xffffffff;
     data->rtp_custom_data->incoming_video_port = track_port;
     data->rtp_custom_data->incoming_video_sample_rate = sample_rate;
     data->rtp_custom_data->incoming_video_payload_type = payload_type;
+    GST_DEBUG ("Incoming Video Track ssrc %" PRIu32 " port %d sample rate %d payload type %d",
+               data->rtp_custom_data->incoming_video_ssrc,
+               track_port,
+               sample_rate,
+               payload_type
+    );
+
   } else if (strncmp(_trackName, "incoming_audio", strlen(_trackName)) == 0) {
     // Copy allocated types
     data->rtp_custom_data->incoming_audio_server = malloc(strlen(_server));
@@ -609,11 +618,19 @@ gst_native_set_rtp_track_properties(JNIEnv *env, jobject thiz, jstring track_nam
     GST_DEBUG ("Incoming Audio Track uri to %s", data->rtp_custom_data->incoming_audio_server);
 
     // Assign primitive types
-    data->rtp_custom_data->incoming_audio_ssrc = track_ssrc;
+    // Convert signed 64bit int to unsigned 32bit
+    data->rtp_custom_data->incoming_audio_ssrc = track_ssrc & 0xffffffff;
     data->rtp_custom_data->incoming_audio_port = track_port;
     data->rtp_custom_data->incoming_audio_sample_rate = sample_rate;
     data->rtp_custom_data->incoming_audio_payload_type = payload_type;
     data->rtp_custom_data->incoming_audio_channels = channels;
+    GST_DEBUG ("Incoming Audio Track ssrc %" PRIu32 " port %d sample rate %d payload type %d channels %d",
+               data->rtp_custom_data->incoming_audio_ssrc,
+               track_port,
+               sample_rate,
+               payload_type,
+               channels
+    );
   } else if (strncmp(_trackName, "outgoing_audio", strlen(_trackName)) == 0) {
     // Copy allocated types
 
@@ -622,11 +639,19 @@ gst_native_set_rtp_track_properties(JNIEnv *env, jobject thiz, jstring track_nam
     data->rtp_custom_data->outgoing_audio_key = byte_array_to_buffer(key_bytes, track_key_len);
     GST_DEBUG ("Outgoing Audio Track uri to %s", data->rtp_custom_data->outgoing_audio_server);
     // Assign primitive types
-    data->rtp_custom_data->outgoing_audio_ssrc = track_ssrc;
+    // Convert signed 64bit int to unsigned 32bit
+    data->rtp_custom_data->outgoing_audio_ssrc = track_ssrc & 0xffffffff;
     data->rtp_custom_data->outgoing_audio_port = track_port;
     data->rtp_custom_data->outgoing_audio_sample_rate = sample_rate;
     data->rtp_custom_data->outgoing_audio_payload_type = payload_type;
     data->rtp_custom_data->audio_channels = channels;
+    GST_DEBUG ("Outgoing Audio Track ssrc %" PRIu32 " port %d sample rate %d payload type %d channels %d",
+               data->rtp_custom_data->outgoing_audio_ssrc,
+               track_port,
+               sample_rate,
+               payload_type,
+               channels
+    );
   }
   (*env)->ReleaseByteArrayElements(env, track_key, key_bytes, JNI_ABORT);
   (*env)->ReleaseStringUTFChars(env, track_name, _trackName);
@@ -803,7 +828,7 @@ static JNINativeMethod native_methods[] = {
   {"nativeInit", "(Ljava/lang/String;)V", (void *) gst_native_init},
   {"nativeFinalize", "()V", (void *) gst_native_finalize},
   {"nativeSetUri", "(Ljava/lang/String;)V", (void *) gst_native_set_uri},
-  {"nativeSetRTPTrackProperties", "(Ljava/lang/String;Ljava/lang/String;I[BIIII)V",
+  {"nativeSetRTPTrackProperties", "(Ljava/lang/String;Ljava/lang/String;I[BJIII)V",
       (void *) gst_native_set_rtp_track_properties},
   {"nativeSetRTPLocalPorts", "(IIII)V", (void *) gst_native_set_rtp_local_ports},
   {"nativePlay", "()V", (void *) gst_native_play},
