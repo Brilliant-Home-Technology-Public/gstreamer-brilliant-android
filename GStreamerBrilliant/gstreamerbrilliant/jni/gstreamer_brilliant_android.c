@@ -819,8 +819,10 @@ gst_native_surface_finalize (JNIEnv *env, jobject thiz)
     gst_element_set_state (data->pipeline, GST_STATE_READY);
   }
 
-  ANativeWindow_release (data->native_window);
-  data->native_window = NULL;
+  if (data->native_window) {
+    ANativeWindow_release(data->native_window);
+    data->native_window = NULL;
+  }
   data->initialized = FALSE;
 }
 
