@@ -19,16 +19,15 @@
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston MA 02110-1301, USA.
  *****************************************************************************/
-#include <string.h>
-#include <stdint.h>
-#include <jni.h>
 #include <android/log.h>
-#include <android/native_window.h>
 #include <android/native_window_jni.h>
-#include <gst/gst.h>
 #include <gst/video/video.h>
 #include <gst/video/videooverlay.h>
 #include <pthread.h>
+#include "gstreamer_brilliant_android.h"
+#include "brilliant_rtsp_backend.h"
+#include "brilliant_custom_rtp_backend.h"
+#include "inttypes.h"
 
 GST_DEBUG_CATEGORY_STATIC (debug_category);
 #define GST_CAT_DEFAULT debug_category
@@ -49,41 +48,31 @@ GST_DEBUG_CATEGORY_STATIC (debug_category);
  * confuse some demuxers. */
 #define SEEK_MIN_DELAY (500 * GST_MSECOND)
 
-/* Structure to contain all our information, so we can pass it to callbacks */
-typedef struct _CustomData
-{
-  jobject app;                  /* Application instance, used to call its methods. A global reference is kept. */
-  GstElement *pipeline;         /* The running pipeline */
-  GstElement *rtsp_src;         /* The rtspsrc element */
-  GstElement *video_sink;       /* The video sink element which receives XOverlay commands */
-  GstElement *volume;           /* The volume element */
-  GMainContext *context;        /* GLib context used to run the main loop */
-  GMainLoop *main_loop;         /* GLib main loop */
-  gboolean initialized;         /* To avoid informing the UI multiple times about the initialization */
-  ANativeWindow *native_window; /* The Android native window where video will be rendered */
-  GstState state;               /* Current pipeline state */
-  GstState target_state;        /* Desired pipeline state, to be set once buffering is complete */
-  gint64 duration;              /* Cached clip duration */
-  gint64 desired_position;      /* Position to seek to, once the pipeline is running */
-  GstClockTime last_seek_time;  /* For seeking overflow prevention (throttling) */
-  gboolean is_live;             /* Live streams do not use buffering */
-} CustomData;
+
 
 /* These global variables cache values which are not changing during execution */
 static pthread_t gst_app_thread;
 static pthread_key_t current_jni_env;
 static JavaVM *java_vm;
 static jfieldID custom_data_field_id;
-static jfieldID another_data_field_id;
-static jfieldID string_data_field_id;
 static jmethodID set_message_method_id;
 static jmethodID set_current_position_method_id;
 static jmethodID on_gstreamer_initialized_method_id;
 static jmethodID on_media_size_changed_method_id;
 
+/* These global constants are used to evaluate against backend_type strings */
+static const char backend_type_rtsp[] = "rtsp";
+static const char backend_type_custom_rtp[] = "custom_rtp";
+
 /*
  * Private methods
  */
+static GstBuffer * byte_array_to_buffer(jbyte *data, int data_len) {
+  gpointer buffer_data = g_memdup(data, data_len);
+  // Takes ownership of allocated memory
+  GstBuffer *buffer = gst_buffer_new_wrapped(buffer_data, data_len);
+  return buffer;
+}
 
 /* Register this thread with the VM */
 static JNIEnv *
@@ -128,8 +117,7 @@ get_jni_env (void)
 }
 
 /* Change the content of the UI's TextView */
-static void
-set_ui_message (const gchar * message, CustomData * data)
+void set_ui_message (const gchar * message, CustomData * data)
 {
   JNIEnv *env = get_jni_env ();
   GST_DEBUG ("Setting message to: %s", message);
@@ -160,7 +148,6 @@ set_current_ui_position (gint position, gint duration, CustomData * data)
 static gboolean
 refresh_ui (CustomData * data)
 {
-  gint64 current = -1;
   gint64 position;
 
   /* We do not want to update anything unless we have a working pipeline in the PAUSED or PLAYING state */
@@ -394,12 +381,13 @@ check_initialization_complete (CustomData * data)
     /* The main loop is running and we received a native window, inform the sink about it */
     gst_video_overlay_set_window_handle (GST_VIDEO_OVERLAY (data->video_sink),
         (guintptr) data->native_window);
-
-    (*env)->CallVoidMethod (env, data->app, on_gstreamer_initialized_method_id);
+    jstring jbackend_type = (*env)->NewStringUTF (env, data->backend_type);
+    (*env)->CallVoidMethod (env, data->app, on_gstreamer_initialized_method_id, jbackend_type);
     if ((*env)->ExceptionCheck (env)) {
       GST_ERROR ("Failed to call Java method");
       (*env)->ExceptionClear (env);
     }
+    (*env)->DeleteLocalRef (env, jbackend_type);
     data->initialized = TRUE;
   }
 }
@@ -413,8 +401,6 @@ app_function (void *userdata)
   CustomData *data = (CustomData *) userdata;
   GSource *timeout_source;
   GSource *bus_source;
-  GError *error = NULL;
-  guint flags;
 
   GST_DEBUG ("Creating pipeline in CustomData at %p", data);
 
@@ -422,36 +408,17 @@ app_function (void *userdata)
   data->context = g_main_context_new ();
   g_main_context_push_thread_default (data->context);
 
-  /* Build pipeline */
-  char *parseLaunchString = "rtspsrc debug=true name=rtspsrc rtspsrc. ! "
-                            "rtph264depay ! h264parse ! decodebin ! "
-                            "autovideoconvert ! autovideosink "
-                            "rtspsrc. ! decodebin ! audioconvert ! "
-                            "volume name=vol ! autoaudiosink";
-
-  data->pipeline = gst_parse_launch (parseLaunchString, &error);
-  if (error) {
-    gchar *message =
-        g_strdup_printf ("Unable to build pipeline: %s", error->message);
-    g_clear_error (&error);
-    set_ui_message (message, data);
-    g_free (message);
+  int result = FALSE;
+  if (strcmp(data->backend_type, backend_type_rtsp) == 0) {
+    result = build_rtsp_pipeline(data);
+  } else if (strcmp(data->backend_type, backend_type_custom_rtp) == 0) {
+    result = build_custom_rtp_pipeline(data);
+  } else {
+    GST_ERROR("Unrecognized backend type %s, aborting pipeline creation.", data->backend_type);
+  }
+  if (!result) {
     return NULL;
   }
-
-  data->rtsp_src = gst_bin_get_by_name(GST_BIN (data->pipeline), "rtspsrc");
-  if (data->rtsp_src == NULL) {
-    GST_ERROR("Could not retrieve rtsp_src");
-  }
-  data->volume = gst_bin_get_by_name(GST_BIN (data->pipeline), "vol");
-  if (data->volume == NULL) {
-    GST_ERROR("Could not retrieve volume");
-  } else {
-    g_object_set(data->volume, "mute", FALSE, NULL);
-  }
-
-  g_object_set(data->rtsp_src, "protocols", 0x4, NULL);
-  g_object_set(data->rtsp_src, "tcp-timeout",(guint64)1000000*15, NULL); // In microseconds
 
   /* Set the pipeline to READY, so it can already accept a window handle, if we have one */
   data->target_state = GST_STATE_READY;
@@ -497,11 +464,24 @@ app_function (void *userdata)
   g_main_context_unref (data->context);
   data->target_state = GST_STATE_NULL;
   gst_element_set_state (data->pipeline, GST_STATE_NULL);
-  gst_object_unref (data->rtsp_src);
-  gst_object_unref (data->volume);
-  gst_object_unref (data->video_sink);
   gst_object_unref (data->pipeline);
+  free(data->backend_type);
 
+  if (data->rtsp_data) {
+    data->rtsp_data->rtsp_src = NULL;
+    GST_DEBUG ("Removed references to RtspData pipeline elements");
+  }
+  data->video_sink = NULL;
+  data->volume = NULL;
+  if (data->rtp_custom_data) {
+    data->rtp_custom_data->out_audio_data_pipe = NULL;
+    data->rtp_custom_data->rtp_bin = NULL;
+    data->rtp_custom_data->video_depay = NULL;
+    data->rtp_custom_data->video_data_pipe = NULL;
+    data->rtp_custom_data->audio_depay = NULL;
+    data->rtp_custom_data->mic_volume = NULL;
+    GST_DEBUG ("Removed references to RtpCustomData pipeline elements");
+  }
   return NULL;
 }
 
@@ -511,16 +491,28 @@ app_function (void *userdata)
 
 /* Instruct the native code to create its internal data structure, pipeline and thread */
 static void
-gst_native_init (JNIEnv * env, jobject thiz)
+gst_native_init (JNIEnv *env, jobject thiz, jstring backend_type)
 {
   CustomData *data = g_new0 (CustomData, 1);
+  data->rtp_custom_data = NULL;
   data->desired_position = GST_CLOCK_TIME_NONE;
   data->last_seek_time = GST_CLOCK_TIME_NONE;
   SET_CUSTOM_DATA (env, thiz, custom_data_field_id, data);
   GST_DEBUG_CATEGORY_INIT (debug_category, "gstreamer-brilliant", 0,
       "GStreamer Brilliant");
   gst_debug_set_threshold_for_name ("gstreamer-brilliant", GST_LEVEL_DEBUG);
-  GST_DEBUG ("Created CustomData at %p", data);
+  const gchar *backend_string = (*env)->GetStringUTFChars (env, backend_type, NULL);
+  data->backend_type = malloc(strlen(backend_string));
+  strcpy(data->backend_type, backend_string);
+  GST_DEBUG ("Created CustomData for backendType %s at %p", data->backend_type, data);
+  (*env)->ReleaseStringUTFChars (env, backend_type, backend_string);
+  if (strcmp(data->backend_type, backend_type_custom_rtp) == 0) {
+    data->rtp_custom_data = g_new0 (RTPCustomData, 1);
+    data->rtsp_data = NULL;
+  } else if (strcmp(data->backend_type, backend_type_rtsp) == 0) {
+    data->rtsp_data = g_new0 (RTSPData, 1);
+    data->rtp_custom_data = NULL;
+  }
   data->app = (*env)->NewGlobalRef (env, thiz);
   GST_DEBUG ("Created GlobalRef for app object at %p", data->app);
   pthread_create (&gst_app_thread, NULL, &app_function, data);
@@ -528,7 +520,7 @@ gst_native_init (JNIEnv * env, jobject thiz)
 
 /* Quit the main loop, remove the native thread and free resources */
 static void
-gst_native_finalize (JNIEnv * env, jobject thiz)
+gst_native_finalize (JNIEnv *env, jobject thiz)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
@@ -539,6 +531,17 @@ gst_native_finalize (JNIEnv * env, jobject thiz)
   pthread_join (gst_app_thread, NULL);
   GST_DEBUG ("Deleting GlobalRef for app object at %p", data->app);
   (*env)->DeleteGlobalRef (env, data->app);
+  if (data->rtp_custom_data) {
+    GST_DEBUG ("Freeing RtpCustomData at %p", data->rtp_custom_data);
+    cleanup_custom_rtp_data(data->rtp_custom_data);
+    g_free(data->rtp_custom_data);
+    data->rtp_custom_data = NULL;
+  }
+  if (data->rtsp_data) {
+    GST_DEBUG ("Freeing RtspData at %p", data->rtsp_data);
+    g_free(data->rtsp_data);
+    data->rtsp_data = NULL;
+  }
   GST_DEBUG ("Freeing CustomData at %p", data);
   g_free (data);
   SET_CUSTOM_DATA (env, thiz, custom_data_field_id, NULL);
@@ -547,23 +550,129 @@ gst_native_finalize (JNIEnv * env, jobject thiz)
 
 /* Set rtspsrc's URI */
 void
-gst_native_set_uri (JNIEnv * env, jobject thiz, jstring uri)
+gst_native_set_uri (JNIEnv *env, jobject thiz, jstring uri)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data || !data->pipeline) {
     GST_DEBUG ("Missing Pipeline or data, aborting set URI");
     return;
   }
+  if (strcmp(data->backend_type, backend_type_rtsp) != 0) {
+    GST_ERROR("Set URI called on backend type %s", data->backend_type);
+    return;
+  }
   const gchar *char_uri = (*env)->GetStringUTFChars (env, uri, NULL);
   GST_DEBUG ("Setting rtspsrc URI to %s", char_uri);
   if (data->target_state >= GST_STATE_READY)
     gst_element_set_state (data->pipeline, GST_STATE_READY);
-  g_object_set (data->rtsp_src, "location", char_uri, NULL);
+  g_object_set (data->rtsp_data->rtsp_src, "location", char_uri, NULL);
   (*env)->ReleaseStringUTFChars (env, uri, char_uri);
   data->duration = GST_CLOCK_TIME_NONE;
   data->is_live |=
       (gst_element_set_state (data->pipeline,
           data->target_state) == GST_STATE_CHANGE_NO_PREROLL);
+}
+
+void
+gst_native_set_rtp_track_properties(JNIEnv *env, jobject thiz, jstring track_name,
+                                    jstring server, int track_port,
+                                    jbyteArray track_key, long track_ssrc,
+                                    int sample_rate, int payload_type, int channels)
+{
+  CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
+  if (strcmp(data->backend_type, backend_type_custom_rtp) != 0) {
+    GST_ERROR("Native set rtp track properties called on pipeline with type %s.",
+              data->backend_type);
+    return;
+  }
+  const char *_trackName = (*env)->GetStringUTFChars(env, track_name, 0);
+  const char *_server = (*env)->GetStringUTFChars(env, server, 0);
+  jbyte* key_bytes = (*env)->GetByteArrayElements(env, track_key, NULL);
+  jsize track_key_len = (*env)->GetArrayLength(env, track_key);
+
+  if (strncmp(_trackName, "incoming_video", strlen(_trackName)) == 0) {
+    // Copy allocated types
+    data->rtp_custom_data->incoming_video_server = malloc(strlen(_server));
+    strcpy(data->rtp_custom_data->incoming_video_server, _server);
+    data->rtp_custom_data->incoming_video_key = byte_array_to_buffer(key_bytes, track_key_len);
+    GST_DEBUG ("Incoming Video Track uri to %s", data->rtp_custom_data->incoming_video_server);
+
+    // Assign primitive types
+    // Convert signed 64bit int to unsigned 32bit
+    data->rtp_custom_data->incoming_video_ssrc = track_ssrc & 0xffffffff;
+    data->rtp_custom_data->incoming_video_port = track_port;
+    data->rtp_custom_data->incoming_video_sample_rate = sample_rate;
+    data->rtp_custom_data->incoming_video_payload_type = payload_type;
+    GST_DEBUG ("Incoming Video Track ssrc %" PRIu32 " port %d sample rate %d payload type %d",
+               data->rtp_custom_data->incoming_video_ssrc,
+               track_port,
+               sample_rate,
+               payload_type
+    );
+
+  } else if (strncmp(_trackName, "incoming_audio", strlen(_trackName)) == 0) {
+    // Copy allocated types
+    data->rtp_custom_data->incoming_audio_server = malloc(strlen(_server));
+    strcpy(data->rtp_custom_data->incoming_audio_server, _server);
+    data->rtp_custom_data->incoming_audio_key = byte_array_to_buffer(key_bytes, track_key_len);
+    GST_DEBUG ("Incoming Audio Track uri to %s", data->rtp_custom_data->incoming_audio_server);
+
+    // Assign primitive types
+    // Convert signed 64bit int to unsigned 32bit
+    data->rtp_custom_data->incoming_audio_ssrc = track_ssrc & 0xffffffff;
+    data->rtp_custom_data->incoming_audio_port = track_port;
+    data->rtp_custom_data->incoming_audio_sample_rate = sample_rate;
+    data->rtp_custom_data->incoming_audio_payload_type = payload_type;
+    data->rtp_custom_data->incoming_audio_channels = channels;
+    GST_DEBUG ("Incoming Audio Track ssrc %" PRIu32 " port %d sample rate %d payload type %d channels %d",
+               data->rtp_custom_data->incoming_audio_ssrc,
+               track_port,
+               sample_rate,
+               payload_type,
+               channels
+    );
+  } else if (strncmp(_trackName, "outgoing_audio", strlen(_trackName)) == 0) {
+    // Copy allocated types
+
+    data->rtp_custom_data->outgoing_audio_server = malloc(strlen(_server));
+    strcpy(data->rtp_custom_data->outgoing_audio_server, _server);
+    data->rtp_custom_data->outgoing_audio_key = byte_array_to_buffer(key_bytes, track_key_len);
+    GST_DEBUG ("Outgoing Audio Track uri to %s", data->rtp_custom_data->outgoing_audio_server);
+    // Assign primitive types
+    // Convert signed 64bit int to unsigned 32bit
+    data->rtp_custom_data->outgoing_audio_ssrc = track_ssrc & 0xffffffff;
+    data->rtp_custom_data->outgoing_audio_port = track_port;
+    data->rtp_custom_data->outgoing_audio_sample_rate = sample_rate;
+    data->rtp_custom_data->outgoing_audio_payload_type = payload_type;
+    data->rtp_custom_data->audio_channels = channels;
+    GST_DEBUG ("Outgoing Audio Track ssrc %" PRIu32 " port %d sample rate %d payload type %d channels %d",
+               data->rtp_custom_data->outgoing_audio_ssrc,
+               track_port,
+               sample_rate,
+               payload_type,
+               channels
+    );
+  }
+  (*env)->ReleaseByteArrayElements(env, track_key, key_bytes, JNI_ABORT);
+  (*env)->ReleaseStringUTFChars(env, track_name, _trackName);
+  (*env)->ReleaseStringUTFChars(env, server, _server);
+}
+
+void gst_native_set_rtp_local_ports(JNIEnv *env, jobject thiz,
+                                    int local_rtp_video_udp_port, int local_rtcp_video_udp_port,
+                                    int local_rtp_audio_udp_port, int local_rtcp_audio_udp_port)
+{
+  CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
+  if (strcmp(data->backend_type, backend_type_custom_rtp) != 0) {
+    GST_ERROR("Native set rtp local ports called on pipeline with type %s.",
+              data->backend_type);
+    return;
+  }
+  data->rtp_custom_data->local_rtp_video_udp_port = local_rtp_video_udp_port;
+  data->rtp_custom_data->local_rtcp_video_udp_port = local_rtcp_video_udp_port;
+  data->rtp_custom_data->local_rtp_audio_udp_port = local_rtp_audio_udp_port;
+  data->rtp_custom_data->local_rtcp_audio_udp_port = local_rtcp_audio_udp_port;
+
 }
 
 /* Set volume's mute property */
@@ -582,24 +691,55 @@ gst_native_set_mute (JNIEnv *env, jobject thiz, jboolean mute)
   }
 }
 
+/* Set mic volume's mute property */
+void
+gst_native_set_mic_mute (JNIEnv *env, jobject thiz, jboolean mute)
+{
+  CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
+  if (!data || !data->pipeline) {
+    GST_DEBUG ("Missing Pipeline or data, aborting set URI");
+    return;
+  }
+  if (strcmp(data->backend_type, backend_type_custom_rtp) != 0 || data->rtp_custom_data == NULL) {
+    GST_ERROR("Called mic mute on inapplicable backend type %s", data->backend_type);
+    return;
+  }
+  if (data->rtp_custom_data->mic_volume == NULL) {
+    GST_ERROR("Missing mic volume when setting mute");
+  } else {
+    g_object_set(data->rtp_custom_data->mic_volume, "mute", !(mute == JNI_FALSE), NULL);
+  }
+}
+
+
 /* Enable GST_DEBUG Logging
  * Example String: 4,rtspsrc:6
  * Setting it to empty string will disable
  * */
 void
-gst_native_set_debug_logging (JNIEnv *env, jobject thiz, jstring gstDebugString)
+gst_native_set_debug_logging (JNIEnv *env, jobject thiz, jstring gst_debug_string)
 {
-    const gchar *char_gstdebug = (*env)->GetStringUTFChars (env, gstDebugString, NULL);
+    const gchar *char_gstdebug = (*env)->GetStringUTFChars (env, gst_debug_string, NULL);
     setenv("GST_DEBUG", char_gstdebug, 1);
+    gst_debug_set_default_threshold(GST_LEVEL_DEBUG);
 }
 
 /* Set pipeline to PLAYING state */
 static void
-gst_native_play (JNIEnv * env, jobject thiz)
+gst_native_play (JNIEnv *env, jobject thiz)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
     return;
+
+  if (strcmp(data->backend_type, backend_type_custom_rtp) == 0) {
+    // Custom RTP Backend type expects track info to be set at this point.
+    if (!complete_custom_rtp_track_pipeline_setup(data)) {
+      GST_ERROR("Custom RTP Track pipeline setup failed (likely due to missing track info). Aborting pipeline play.");
+      return;
+    }
+  }
+
   GST_DEBUG ("Setting state to PLAYING");
   data->target_state = GST_STATE_PLAYING;
   data->is_live |=
@@ -609,7 +749,7 @@ gst_native_play (JNIEnv * env, jobject thiz)
 
 /* Set pipeline to PAUSED state */
 static void
-gst_native_pause (JNIEnv * env, jobject thiz)
+gst_native_pause (JNIEnv *env, jobject thiz)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
@@ -623,7 +763,7 @@ gst_native_pause (JNIEnv * env, jobject thiz)
 
 /* Instruct the pipeline to seek to a different position */
 void
-gst_native_set_position (JNIEnv * env, jobject thiz, int milliseconds)
+gst_native_set_position (JNIEnv *env, jobject thiz, int milliseconds)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
@@ -640,7 +780,7 @@ gst_native_set_position (JNIEnv * env, jobject thiz, int milliseconds)
 
 /* Static class initializer: retrieve method and field IDs */
 static jboolean
-gst_native_class_init (JNIEnv * env, jclass klass)
+gst_native_class_init (JNIEnv *env, jclass klass)
 {
   custom_data_field_id =
       (*env)->GetFieldID (env, klass, "nativeCustomData", "J");
@@ -649,7 +789,7 @@ gst_native_class_init (JNIEnv * env, jclass klass)
   set_current_position_method_id =
       (*env)->GetMethodID (env, klass, "setCurrentPosition", "(II)V");
   on_gstreamer_initialized_method_id =
-      (*env)->GetMethodID (env, klass, "onGStreamerInitialized", "()V");
+      (*env)->GetMethodID (env, klass, "onGStreamerInitialized", "(Ljava/lang/String;)V");
   on_media_size_changed_method_id =
       (*env)->GetMethodID (env, klass, "onMediaSizeChanged", "(II)V");
 
@@ -667,7 +807,7 @@ gst_native_class_init (JNIEnv * env, jclass klass)
 }
 
 static void
-gst_native_surface_init (JNIEnv * env, jobject thiz, jobject surface)
+gst_native_surface_init (JNIEnv *env, jobject thiz, jobject surface)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
@@ -696,7 +836,7 @@ gst_native_surface_init (JNIEnv * env, jobject thiz, jobject surface)
 }
 
 static void
-gst_native_surface_finalize (JNIEnv * env, jobject thiz)
+gst_native_surface_finalize (JNIEnv *env, jobject thiz)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data)
@@ -709,19 +849,25 @@ gst_native_surface_finalize (JNIEnv * env, jobject thiz)
     gst_element_set_state (data->pipeline, GST_STATE_READY);
   }
 
-  ANativeWindow_release (data->native_window);
-  data->native_window = NULL;
+  if (data->native_window) {
+    ANativeWindow_release(data->native_window);
+    data->native_window = NULL;
+  }
   data->initialized = FALSE;
 }
 
 /* List of implemented native methods */
 static JNINativeMethod native_methods[] = {
-  {"nativeInit", "()V", (void *) gst_native_init},
+  {"nativeInit", "(Ljava/lang/String;)V", (void *) gst_native_init},
   {"nativeFinalize", "()V", (void *) gst_native_finalize},
   {"nativeSetUri", "(Ljava/lang/String;)V", (void *) gst_native_set_uri},
+  {"nativeSetRTPTrackProperties", "(Ljava/lang/String;Ljava/lang/String;I[BJIII)V",
+      (void *) gst_native_set_rtp_track_properties},
+  {"nativeSetRTPLocalPorts", "(IIII)V", (void *) gst_native_set_rtp_local_ports},
   {"nativePlay", "()V", (void *) gst_native_play},
   {"nativePause", "()V", (void *) gst_native_pause},
   {"nativeSetMute", "(Z)V", (void *) gst_native_set_mute},
+  {"nativeSetMicMute", "(Z)V", (void *) gst_native_set_mic_mute},
   {"nativeSetDebugLogging", "(Ljava/lang/String;)V", (void *) gst_native_set_debug_logging},
   {"nativeSetPosition", "(I)V", (void *) gst_native_set_position},
   {"nativeSurfaceInit", "(Ljava/lang/Object;)V",

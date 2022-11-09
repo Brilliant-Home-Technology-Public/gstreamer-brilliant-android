@@ -39,6 +39,7 @@ GStreamerBrilliant/.navigation/
 GStreamerBrilliant/captures
 
 GStreamerBrilliant/gstreamerbrilliant/build/
+GStreamerBrilliant/gstreamerbrilliant/gst-android-build/
 GStreamerBrilliant/gstreamerbrilliant/x86/
 GStreamerBrilliant/gstreamerbrilliant/x86_64/
 GStreamerBrilliant/gstreamerbrilliant/armeabi-v7a/
