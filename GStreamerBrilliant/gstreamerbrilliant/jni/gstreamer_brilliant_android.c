@@ -697,7 +697,7 @@ gst_native_set_mic_mute (JNIEnv *env, jobject thiz, jboolean mute)
 {
   CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
   if (!data || !data->pipeline) {
-    GST_DEBUG ("Missing Pipeline or data, aborting set URI");
+    GST_DEBUG ("Missing Pipeline or data, aborting set mic mute");
     return;
   }
   if (strcmp(data->backend_type, backend_type_custom_rtp) != 0 || data->rtp_custom_data == NULL) {
@@ -711,6 +711,25 @@ gst_native_set_mic_mute (JNIEnv *env, jobject thiz, jboolean mute)
   }
 }
 
+/* Set mic volume's volume property */
+void
+gst_native_set_mic_volume (JNIEnv *env, jobject thiz, jfloat volume)
+{
+  CustomData *data = GET_CUSTOM_DATA (env, thiz, custom_data_field_id);
+  if (!data || !data->pipeline) {
+    GST_DEBUG ("Missing Pipeline or data, aborting set mic volume");
+    return;
+  }
+  if (strcmp(data->backend_type, backend_type_custom_rtp) != 0 || data->rtp_custom_data == NULL) {
+    GST_ERROR("Called mic volume on inapplicable backend type %s", data->backend_type);
+    return;
+  }
+  if (data->rtp_custom_data->mic_volume == NULL) {
+    GST_ERROR("Missing mic volume when setting volume");
+  } else {
+    g_object_set(data->rtp_custom_data->mic_volume, "volume", volume, NULL);
+  }
+}
 
 /* Enable GST_DEBUG Logging
  * Example String: 4,rtspsrc:6
@@ -868,6 +887,7 @@ static JNINativeMethod native_methods[] = {
   {"nativePause", "()V", (void *) gst_native_pause},
   {"nativeSetMute", "(Z)V", (void *) gst_native_set_mute},
   {"nativeSetMicMute", "(Z)V", (void *) gst_native_set_mic_mute},
+  {"nativeSetMicVolume", "(F)V", (void *) gst_native_set_mic_volume},
   {"nativeSetDebugLogging", "(Ljava/lang/String;)V", (void *) gst_native_set_debug_logging},
   {"nativeSetPosition", "(I)V", (void *) gst_native_set_position},
   {"nativeSurfaceInit", "(Ljava/lang/Object;)V",
