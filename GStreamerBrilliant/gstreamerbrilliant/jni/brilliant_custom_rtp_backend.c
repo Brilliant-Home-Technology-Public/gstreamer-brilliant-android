@@ -190,6 +190,10 @@ static int set_up_receive_video_pipeline(CustomData *data) {
     GST_ERROR("Missing RTPCustomData struct when constructing receive video pipeline.");
     return FALSE;
   }
+  if (rtp_custom_data->video_depay) {
+    GST_DEBUG("Video pipeline already set up.");
+    return TRUE;
+  }
   GST_DEBUG("Starting to set up receive video pipeline");
   GstElement *rtp_video_udp_src = gst_element_factory_make("udpsrc", "rtp_video_udp_src");
   g_object_set(rtp_video_udp_src, "port", rtp_custom_data->local_rtp_video_udp_port, NULL);
@@ -286,24 +290,6 @@ static GSocket * create_socket_on_port(int port) {
   return socket;
 }
 
-static int notify_custom_rtp_start_sending(CustomData *data, gchar *server, int port, int local_port) {
-  GSocket *socket = create_socket_on_port(local_port);
-  GError *error = NULL;
-  GInetAddress *host_address = g_inet_address_new_from_string(server);
-  GSocketAddress *dest_address = g_inet_socket_address_new(host_address, port);
-  g_socket_send_to(socket, dest_address, "Start Data", 10, NULL, &error);
-  if (error != NULL) {
-    g_error_free(error);
-    g_object_unref(socket);
-    return FALSE;
-  }
-  g_object_unref(host_address);
-  g_object_unref(dest_address);
-  g_socket_close(socket, NULL);
-  g_object_unref(socket);
-  return TRUE;
-}
-
 /*
  *  Audio Pipeline Diagram:
  *
@@ -378,14 +364,14 @@ static int set_up_receive_audio_pipeline(CustomData *data, GSocket *socket) {
     return FALSE;
   }
   GstCaps *audio_caps = gst_caps_new_simple("application/x-srtp",
-                                           "clock-rate", G_TYPE_INT, rtp_custom_data->incoming_audio_sample_rate,
-                                           "encoding-name", G_TYPE_STRING, "L16",
-                                           "payload", G_TYPE_INT, rtp_custom_data->incoming_audio_payload_type,
-                                           "media", G_TYPE_STRING, "audio",
-                                           "channels", G_TYPE_INT, rtp_custom_data->incoming_audio_channels,
-                                           "channel-mask", GST_TYPE_BITMASK, 0x3,
-                                           "format", G_TYPE_STRING, "S16LE",
-                                           NULL);
+                                            "clock-rate", G_TYPE_INT, rtp_custom_data->incoming_audio_sample_rate,
+                                            "encoding-name", G_TYPE_STRING, "L16",
+                                            "payload", G_TYPE_INT, rtp_custom_data->incoming_audio_payload_type,
+                                            "media", G_TYPE_STRING, "audio",
+                                            "channels", G_TYPE_INT, rtp_custom_data->incoming_audio_channels,
+                                            "channel-mask", GST_TYPE_BITMASK, 0x3,
+                                            "format", G_TYPE_STRING, "S16LE",
+                                            NULL);
   GstElement *srtp_dec = get_srtp_decoder(
       rtp_custom_data->incoming_audio_key,
       rtp_custom_data->incoming_audio_ssrc,
@@ -519,17 +505,17 @@ static int set_up_send_audio_pipeline(CustomData *data, GSocket *socket) {
   g_object_set(rtcp_audio_udp_src, "port", rtp_custom_data->local_rtcp_audio_udp_port, NULL);
   rtp_custom_data->out_audio_data_pipe = gst_element_factory_make("identity", NULL);
   GstCaps *audio_caps = gst_caps_new_simple("application/x-rtp",
-                                           "clock-rate", G_TYPE_INT, rtp_custom_data->outgoing_audio_sample_rate,
-                                           "encoding-name", G_TYPE_STRING, "L16",
-                                           "payload", G_TYPE_INT, rtp_custom_data->outgoing_audio_payload_type,
-                                           "media", G_TYPE_STRING, "audio",
-                                           "channels", G_TYPE_INT, rtp_custom_data->audio_channels,
-                                           "channel-mask", GST_TYPE_BITMASK, 0x3,
-                                           "format", G_TYPE_STRING, "S16LE",
-                                           "ssrc", G_TYPE_UINT, rtp_custom_data->outgoing_audio_ssrc,
-                                           "srtp-cipher", G_TYPE_STRING, "aes-128-icm",
-                                           "srtp-auth", G_TYPE_STRING, "hmac-sha1-80",
-                                           NULL);
+                                            "clock-rate", G_TYPE_INT, rtp_custom_data->outgoing_audio_sample_rate,
+                                            "encoding-name", G_TYPE_STRING, "L16",
+                                            "payload", G_TYPE_INT, rtp_custom_data->outgoing_audio_payload_type,
+                                            "media", G_TYPE_STRING, "audio",
+                                            "channels", G_TYPE_INT, rtp_custom_data->audio_channels,
+                                            "channel-mask", GST_TYPE_BITMASK, 0x3,
+                                            "format", G_TYPE_STRING, "S16LE",
+                                            "ssrc", G_TYPE_UINT, rtp_custom_data->outgoing_audio_ssrc,
+                                            "srtp-cipher", G_TYPE_STRING, "aes-128-icm",
+                                            "srtp-auth", G_TYPE_STRING, "hmac-sha1-80",
+                                            NULL);
   GstElement *rtp_caps_filter = gst_element_factory_make("capsfilter", "audio_rtp_caps");
   g_object_set(rtp_caps_filter, "caps", audio_caps, NULL);
   gst_object_unref(audio_caps);
@@ -568,6 +554,54 @@ static int set_up_send_audio_pipeline(CustomData *data, GSocket *socket) {
   gst_pad_link(rtp_bin_send_rtcp_src, rtcp_udp_sink);
 
   GST_DEBUG("Completed set up of send audio pipeline");
+  return TRUE;
+}
+
+static int set_up_two_way_audio_pipeline(CustomData *data) {
+  RTPCustomData *rtp_custom_data = data->rtp_custom_data;
+  if (!rtp_custom_data) {
+    GST_ERROR("Missing RTPCustomData struct when constructing audio pipeline.");
+    return FALSE;
+  }
+  if (rtp_custom_data->audio_depay) {
+    // Assume audio pipline has already been setup.
+    return TRUE;
+  }
+  // The socket is shared for sending/receiving audio RTP packets because the server will
+  // deliver audio to the port it sees packets coming from
+  GSocket *audio_rtp_socket = create_socket_on_port(rtp_custom_data->local_rtp_audio_udp_port);
+  if (!audio_rtp_socket) {
+    GST_WARNING("Failed to create audio RTP socket.");
+    return FALSE;
+  }
+  rtp_custom_data->audio_rtp_socket = audio_rtp_socket;
+  int set_up_receive_audio_result = set_up_receive_audio_pipeline(data, audio_rtp_socket);
+  if (!set_up_receive_audio_result) {
+    GST_WARNING("Failed to set up incoming audio pipeline.");
+    return FALSE;
+  }
+  int set_up_send_audio_result = set_up_send_audio_pipeline(data, audio_rtp_socket);
+  if (!set_up_send_audio_result) {
+    GST_WARNING("Failed to set up outgoing audio pipeline.");
+    return FALSE;
+  }
+}
+
+static int notify_custom_rtp_start_sending(CustomData *data, gchar *server, int port, int local_port) {
+  GSocket *socket = create_socket_on_port(local_port);
+  GError *error = NULL;
+  GInetAddress *host_address = g_inet_address_new_from_string(server);
+  GSocketAddress *dest_address = g_inet_socket_address_new(host_address, port);
+  g_socket_send_to(socket, dest_address, "Start Data", 10, NULL, &error);
+  if (error != NULL) {
+    g_error_free(error);
+    g_object_unref(socket);
+    return FALSE;
+  }
+  g_object_unref(host_address);
+  g_object_unref(dest_address);
+  g_socket_close(socket, NULL);
+  g_object_unref(socket);
   return TRUE;
 }
 
@@ -613,22 +647,9 @@ int complete_custom_rtp_track_pipeline_setup(CustomData *data) {
     GST_WARNING("Failed to notify Target to start audio.");
     return FALSE;
   }
-  // The socket is shared for sending/receiving audio RTP packets because the server will
-  // deliver audio to the port it sees packets coming from
-  GSocket *audio_rtp_socket = create_socket_on_port(rtp_custom_data->local_rtp_audio_udp_port);
-  if (!audio_rtp_socket) {
-    GST_WARNING("Failed to create audio RTP socket.");
-    return FALSE;
-  }
-  rtp_custom_data->audio_rtp_socket = audio_rtp_socket;
-  int set_up_receive_audio_result = set_up_receive_audio_pipeline(data, audio_rtp_socket);
-  if (!set_up_receive_audio_result) {
-    GST_WARNING("Failed to set up incoming audio pipeline.");
-    return FALSE;
-  }
-  int set_up_send_audio_result = set_up_send_audio_pipeline(data, audio_rtp_socket);
-  if (!set_up_send_audio_result) {
-    GST_WARNING("Failed to set up outgoing audio pipeline.");
+  int audio_setup_result = set_up_two_way_audio_pipeline(data);
+  if (!audio_setup_result) {
+    GST_WARNING("Failed to set up audio pipeline.");
     return FALSE;
   }
   GST_DEBUG("Completed setup for custom rtp backend!");
