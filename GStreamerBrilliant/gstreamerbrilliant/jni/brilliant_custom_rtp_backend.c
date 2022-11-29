@@ -594,7 +594,9 @@ static int notify_custom_rtp_start_sending(CustomData *data, gchar *server, int 
   GSocketAddress *dest_address = g_inet_socket_address_new(host_address, port);
   g_socket_send_to(socket, dest_address, "Start Data", 10, NULL, &error);
   if (error != NULL) {
+    GST_ERROR ("Failed to notify server %s:%d to start. Error: %s", server, port, error->message);
     g_error_free(error);
+    g_socket_close(socket, NULL);
     g_object_unref(socket);
     return FALSE;
   }
