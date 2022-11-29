@@ -622,6 +622,11 @@ int complete_custom_rtp_track_pipeline_setup(CustomData *data) {
     GST_ERROR("Missing Track Info when completing custom rtp backend pipeline.");
     return FALSE;
   }
+  int video_setup_result = set_up_receive_video_pipeline(data);
+  if (!video_setup_result) {
+    GST_WARNING("Failed to set up video pipeline.");
+    return FALSE;
+  }
   int notify_video_result = notify_custom_rtp_start_sending(
       data,
       rtp_custom_data->incoming_video_server,
@@ -632,9 +637,9 @@ int complete_custom_rtp_track_pipeline_setup(CustomData *data) {
     GST_WARNING("Failed to notify Target to start video.");
     return FALSE;
   }
-  int video_setup_result = set_up_receive_video_pipeline(data);
-  if (!video_setup_result) {
-    GST_WARNING("Failed to set up video pipeline.");
+  int audio_setup_result = set_up_two_way_audio_pipeline(data);
+  if (!audio_setup_result) {
+    GST_WARNING("Failed to set up audio pipeline.");
     return FALSE;
   }
   int notify_audio_result = notify_custom_rtp_start_sending(
@@ -645,11 +650,6 @@ int complete_custom_rtp_track_pipeline_setup(CustomData *data) {
   );
   if (!notify_audio_result) {
     GST_WARNING("Failed to notify Target to start audio.");
-    return FALSE;
-  }
-  int audio_setup_result = set_up_two_way_audio_pipeline(data);
-  if (!audio_setup_result) {
-    GST_WARNING("Failed to set up audio pipeline.");
     return FALSE;
   }
   GST_DEBUG("Completed setup for custom rtp backend!");
