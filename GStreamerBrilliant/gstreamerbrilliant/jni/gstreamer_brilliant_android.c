@@ -28,6 +28,7 @@
 #include "brilliant_rtsp_backend.h"
 #include "brilliant_custom_rtp_backend.h"
 #include "inttypes.h"
+#include <gio/gio.h>
 
 GST_DEBUG_CATEGORY_STATIC (debug_category);
 #define GST_CAT_DEFAULT debug_category
@@ -474,6 +475,11 @@ app_function (void *userdata)
   data->video_sink = NULL;
   data->volume = NULL;
   if (data->rtp_custom_data) {
+    if (!data->rtp_custom_data->audio_rtp_socket) {
+      g_socket_close(data->rtp_custom_data->audio_rtp_socket, NULL);
+      gst_object_unref(data->rtp_custom_data->audio_rtp_socket);
+      data->rtp_custom_data->audio_rtp_socket = NULL;
+    }
     data->rtp_custom_data->out_audio_data_pipe = NULL;
     data->rtp_custom_data->rtp_bin = NULL;
     data->rtp_custom_data->video_depay = NULL;

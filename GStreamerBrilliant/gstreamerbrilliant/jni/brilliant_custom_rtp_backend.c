@@ -620,6 +620,7 @@ int complete_custom_rtp_track_pipeline_setup(CustomData *data) {
     GST_WARNING("Failed to create audio RTP socket.");
     return FALSE;
   }
+  rtp_custom_data->audio_rtp_socket = audio_rtp_socket;
   int set_up_receive_audio_result = set_up_receive_audio_pipeline(data, audio_rtp_socket);
   if (!set_up_receive_audio_result) {
     GST_WARNING("Failed to set up incoming audio pipeline.");

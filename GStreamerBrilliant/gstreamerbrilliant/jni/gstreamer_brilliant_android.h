@@ -27,6 +27,7 @@
 #include <stdint.h>
 #include <gst/gst.h>
 #include <android/native_window.h>
+#include <gio/gio.h>
 
 /* Structure to contain all our Custom RTP Backend information,
  * when applicable.
@@ -41,6 +42,7 @@ typedef struct _RTPCustomData
   GstElement *mic_volume;             /* Volume element for muting and adjusting stream volume */
   GstElement *rtp_bin;                /* RTP Bin element */
   GstElement *video_data_pipe;        /* Incoming video data pipe */
+  GSocket *audio_rtp_socket;          /* Shared audio RTP Socket */
 
   int local_rtp_video_udp_port;
   int local_rtcp_video_udp_port;
