@@ -506,7 +506,6 @@ gst_native_init (JNIEnv *env, jobject thiz, jstring backend_type)
   SET_CUSTOM_DATA (env, thiz, custom_data_field_id, data);
   GST_DEBUG_CATEGORY_INIT (debug_category, "gstreamer-brilliant", 0,
       "GStreamer Brilliant");
-  gst_debug_set_threshold_for_name ("gstreamer-brilliant", GST_LEVEL_DEBUG);
   const gchar *backend_string = (*env)->GetStringUTFChars (env, backend_type, NULL);
   data->backend_type = malloc(strlen(backend_string));
   strcpy(data->backend_type, backend_string);
@@ -744,6 +743,9 @@ gst_native_set_mic_volume (JNIEnv *env, jobject thiz, jfloat volume)
 void
 gst_native_set_debug_logging (JNIEnv *env, jobject thiz, jstring gst_debug_string)
 {
+    // Note: When using this make sure to adjust the default level in
+    // <GstreamerAndroidRoot>/<platform>/share/gst-android/ndk-build/gstreamer_android-1.0.c.in
+    // and recompile first.
     const gchar *char_gstdebug = (*env)->GetStringUTFChars (env, gst_debug_string, NULL);
     setenv("GST_DEBUG", char_gstdebug, 1);
     gst_debug_set_default_threshold(GST_LEVEL_DEBUG);
