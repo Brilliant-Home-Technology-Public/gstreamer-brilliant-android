@@ -470,7 +470,7 @@ app_function (void *userdata)
 
   if (data->rtsp_data) {
     data->rtsp_data->rtsp_src = NULL;
-    GST_DEBUG ("Removed references to RtspData pipeline elements");
+    GST_DEBUG ("Cleaned up rtsp_data pipeline elements");
   }
   data->video_sink = NULL;
   data->volume = NULL;
@@ -495,7 +495,7 @@ app_function (void *userdata)
     data->rtp_custom_data->video_data_pipe = NULL;
     data->rtp_custom_data->audio_depay = NULL;
     data->rtp_custom_data->mic_volume = NULL;
-    GST_DEBUG ("Removed references to RtpCustomData pipeline elements");
+    GST_DEBUG ("Cleaned up rtp_custom_data pipeline elements");
   }
   return NULL;
 }

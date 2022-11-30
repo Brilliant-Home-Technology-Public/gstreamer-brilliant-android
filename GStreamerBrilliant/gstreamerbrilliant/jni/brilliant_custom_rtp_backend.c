@@ -39,7 +39,7 @@ static void decode_bin_pad_added (GstElement *decode_bin, GstPad *pad, CustomDat
 
 static void rtp_bin_pad_added (GstElement *rtpBin, GstPad* pad, CustomData *data) {
   gchar *pad_name = gst_pad_get_name(pad);
-  GST_DEBUG("rp_bin_pad_added, pad name: %s", pad_name);
+  GST_DEBUG("rtp_bin_pad_added, pad name: %s", pad_name);
   if (strstr(pad_name, "send_rtp_src") != NULL) {
     GstPad *sink_pad = gst_element_get_static_pad(data->rtp_custom_data->out_audio_data_pipe, "sink");
     gst_pad_link(pad, sink_pad);
@@ -263,7 +263,7 @@ static int set_up_receive_video_pipeline(CustomData *data) {
   GstPad *rtp_bin_send_rtcp_src = gst_element_request_pad_simple(rtp_custom_data->rtp_bin, "send_rtcp_src_%u");
   GstPad *rtcp_udp_sink = gst_element_get_static_pad(rtcp_video_udp_sink, "sink");
   gst_pad_link(rtp_bin_send_rtcp_src, rtcp_udp_sink);
-  GST_DEBUG("Completed set up of receive video pipeline");
+  GST_DEBUG("Completed setup of receive video pipeline");
   return TRUE;
 }
 
@@ -401,7 +401,7 @@ static int set_up_receive_audio_pipeline(CustomData *data, GSocket *socket) {
   GstPad *rtcp_udp_sink = gst_element_get_static_pad(rtcp_audio_udp_sink, "sink");
   gst_pad_link(rtp_bin_send_rtcp_src, rtcp_udp_sink);
 
-  GST_DEBUG("Completed set up of receive audio pipeline");
+  GST_DEBUG("Completed setup of receive audio pipeline");
   return TRUE;
 }
 
@@ -553,7 +553,7 @@ static int set_up_send_audio_pipeline(CustomData *data, GSocket *socket) {
   GstPad *rtcp_udp_sink = gst_element_get_static_pad(rtcp_audio_udp_sink, "sink");
   gst_pad_link(rtp_bin_send_rtcp_src, rtcp_udp_sink);
 
-  GST_DEBUG("Completed set up of send audio pipeline");
+  GST_DEBUG("Completed setup of send audio pipeline");
   return TRUE;
 }
 
@@ -564,7 +564,7 @@ static int set_up_two_way_audio_pipeline(CustomData *data) {
     return FALSE;
   }
   if (rtp_custom_data->audio_depay) {
-    // Assume audio pipline has already been setup.
+    // Assume audio pipeline has already been setup.
     return TRUE;
   }
   // The socket is shared for sending/receiving audio RTP packets because the server will
@@ -655,7 +655,7 @@ int complete_custom_rtp_track_pipeline_setup(CustomData *data) {
     GST_WARNING("Failed to notify Target to start audio.");
     return FALSE;
   }
-  GST_DEBUG("Completed setup for custom rtp backend!");
+  GST_DEBUG("Completed setup for custom rtp backend.");
   return TRUE;
 }
 
