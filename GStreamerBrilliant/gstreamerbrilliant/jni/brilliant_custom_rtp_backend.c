@@ -28,6 +28,7 @@
 static void decode_bin_pad_added (GstElement *decode_bin, GstPad *pad, CustomData *data)
 {
   gchar *pad_name = gst_pad_get_name(pad);
+  GST_DEBUG("decode_bin_pad_added, pad name: %s", pad_name);
   gboolean success = gst_element_link(decode_bin, data->rtp_custom_data->video_data_pipe);
   if (!success) {
     gchar *message = g_strdup_printf("CustomRTPBackend is unable to link pad %s from decode_bin to video sink.", pad_name);
@@ -181,20 +182,21 @@ static int set_up_video_sink(CustomData *data) {
     GST_ERROR("Failed to link video sink elements.");
     return FALSE;
   }
+  GST_DEBUG("Finished set up video sink");
   return TRUE;
 }
 
 static int set_up_receive_video_pipeline(CustomData *data) {
+  GST_DEBUG("Starting to set up receive video pipeline");
   RTPCustomData *rtp_custom_data = data->rtp_custom_data;
   if (!rtp_custom_data) {
     GST_ERROR("Missing RTPCustomData struct when constructing receive video pipeline.");
     return FALSE;
   }
   if (rtp_custom_data->video_depay) {
-    GST_DEBUG("Video pipeline already set up.");
+    GST_WARNING("Video pipeline already set up.");
     return TRUE;
   }
-  GST_DEBUG("Starting to set up receive video pipeline");
   GstElement *rtp_video_udp_src = gst_element_factory_make("udpsrc", "rtp_video_udp_src");
   g_object_set(rtp_video_udp_src, "port", rtp_custom_data->local_rtp_video_udp_port, NULL);
   GstElement *rtcp_video_udp_src = gst_element_factory_make("udpsrc", "rtcp_video_udp_src");
@@ -278,6 +280,7 @@ static GSocket * create_socket_on_port(int port) {
     return NULL;
   }
   GInetAddress *host_address = g_inet_address_new_from_string("0.0.0.0");
+  GST_DEBUG("Binding local socket on 0.0.0.0:%d", port);
   GSocketAddress *bind_address = g_inet_socket_address_new(host_address, port);
   if (!g_socket_bind(socket, bind_address, TRUE, &error)) {
     GST_ERROR("Failed to bind port %d. Error: %s", port, error ? error->message : "<unknown error>");
@@ -435,7 +438,7 @@ static int set_up_send_audio_pipeline(CustomData *data, GSocket *socket) {
     GST_ERROR("Missing RTPCustomData struct when constructing send audio pipeline.");
     return FALSE;
   }
-
+  GST_DEBUG("Starting setup of send audio pipeline.");
   GstElement *auto_audio_src = gst_element_factory_make("autoaudiosrc", NULL);
   GstElement *audio_convert = gst_element_factory_make("audioconvert", NULL);
   GstElement *audio_resample = gst_element_factory_make("audioresample", NULL);
@@ -563,8 +566,10 @@ static int set_up_two_way_audio_pipeline(CustomData *data) {
     GST_ERROR("Missing RTPCustomData struct when constructing audio pipeline.");
     return FALSE;
   }
+  GST_DEBUG("Starting to set up two way audio pipeline on port %d", rtp_custom_data->local_rtp_audio_udp_port);
   if (rtp_custom_data->audio_depay) {
     // Assume audio pipeline has already been setup.
+    GST_WARNING("Audio pipeline was already set up.");
     return TRUE;
   }
   // The socket is shared for sending/receiving audio RTP packets because the server will
@@ -593,6 +598,7 @@ static int notify_custom_rtp_start_sending(CustomData *data, gchar *server, int 
   GError *error = NULL;
   GInetAddress *host_address = g_inet_address_new_from_string(server);
   GSocketAddress *dest_address = g_inet_socket_address_new(host_address, port);
+  GST_DEBUG("Sending datagram to %s:%d", server, port);
   g_socket_send_to(socket, dest_address, "Start Data", 10, NULL, &error);
   if (error != NULL) {
     GST_ERROR ("Failed to notify server %s:%d to start. Error: %s", server, port, error->message);
@@ -661,6 +667,7 @@ int complete_custom_rtp_track_pipeline_setup(CustomData *data) {
 
 int build_custom_rtp_pipeline(CustomData *data)
 {
+  GST_DEBUG("Starting to build custom rtp pipeline.");
   RTPCustomData *rtp_custom_data = data->rtp_custom_data;
   if (!rtp_custom_data) {
     GST_ERROR("Missing RTPCustomData struct when constructing custom rtp backend pipeline.");

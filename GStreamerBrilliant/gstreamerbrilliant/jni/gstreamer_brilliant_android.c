@@ -488,6 +488,7 @@ app_function (void *userdata)
       }
       gst_object_unref(data->rtp_custom_data->audio_rtp_socket);
       data->rtp_custom_data->audio_rtp_socket = NULL;
+      GST_DEBUG ("Cleaned up rtp_custom_data audio_rtp_socket.");
     }
     data->rtp_custom_data->out_audio_data_pipe = NULL;
     data->rtp_custom_data->rtp_bin = NULL;
@@ -497,6 +498,7 @@ app_function (void *userdata)
     data->rtp_custom_data->mic_volume = NULL;
     GST_DEBUG ("Cleaned up rtp_custom_data pipeline elements");
   }
+  GST_DEBUG("Exiting gstreamer pipeline app_function.");
   return NULL;
 }
 
