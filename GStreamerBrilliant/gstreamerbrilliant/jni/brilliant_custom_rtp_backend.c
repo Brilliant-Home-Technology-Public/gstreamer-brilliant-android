@@ -585,6 +585,7 @@ static int set_up_two_way_audio_pipeline(CustomData *data) {
     GST_WARNING("Failed to set up outgoing audio pipeline.");
     return FALSE;
   }
+  return TRUE;
 }
 
 static int notify_custom_rtp_start_sending(CustomData *data, gchar *server, int port, int local_port) {
