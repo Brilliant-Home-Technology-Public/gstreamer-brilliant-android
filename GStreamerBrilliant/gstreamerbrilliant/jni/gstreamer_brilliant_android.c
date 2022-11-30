@@ -475,8 +475,17 @@ app_function (void *userdata)
   data->video_sink = NULL;
   data->volume = NULL;
   if (data->rtp_custom_data) {
-    if (!data->rtp_custom_data->audio_rtp_socket) {
-      g_socket_close(data->rtp_custom_data->audio_rtp_socket, NULL);
+    if (data->rtp_custom_data->audio_rtp_socket) {
+      GError *error = NULL;
+      GST_DEBUG("Closing socket 0.0.0.0:%d", data->rtp_custom_data->local_rtp_audio_udp_port);
+      g_socket_close(data->rtp_custom_data->audio_rtp_socket, &error);
+      if (error) {
+        gchar *message =
+            g_strdup_printf ("Failed to close socket on cleanup: %s", error->message);
+        g_clear_error (&error);
+        set_ui_message (message, data);
+        g_free (message);
+      }
       gst_object_unref(data->rtp_custom_data->audio_rtp_socket);
       data->rtp_custom_data->audio_rtp_socket = NULL;
     }
