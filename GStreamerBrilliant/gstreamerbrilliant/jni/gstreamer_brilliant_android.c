@@ -28,6 +28,7 @@
 #include "brilliant_rtsp_backend.h"
 #include "brilliant_custom_rtp_backend.h"
 #include "inttypes.h"
+#include <gio/gio.h>
 
 GST_DEBUG_CATEGORY_STATIC (debug_category);
 #define GST_CAT_DEFAULT debug_category
@@ -469,19 +470,35 @@ app_function (void *userdata)
 
   if (data->rtsp_data) {
     data->rtsp_data->rtsp_src = NULL;
-    GST_DEBUG ("Removed references to RtspData pipeline elements");
+    GST_DEBUG ("Cleaned up rtsp_data pipeline elements");
   }
   data->video_sink = NULL;
   data->volume = NULL;
   if (data->rtp_custom_data) {
+    if (data->rtp_custom_data->audio_rtp_socket) {
+      GError *error = NULL;
+      GST_DEBUG("Closing socket 0.0.0.0:%d", data->rtp_custom_data->local_rtp_audio_udp_port);
+      g_socket_close(data->rtp_custom_data->audio_rtp_socket, &error);
+      if (error) {
+        gchar *message =
+            g_strdup_printf ("Failed to close socket on cleanup: %s", error->message);
+        g_clear_error (&error);
+        set_ui_message (message, data);
+        g_free (message);
+      }
+      gst_object_unref(data->rtp_custom_data->audio_rtp_socket);
+      data->rtp_custom_data->audio_rtp_socket = NULL;
+      GST_DEBUG ("Cleaned up rtp_custom_data audio_rtp_socket.");
+    }
     data->rtp_custom_data->out_audio_data_pipe = NULL;
     data->rtp_custom_data->rtp_bin = NULL;
     data->rtp_custom_data->video_depay = NULL;
     data->rtp_custom_data->video_data_pipe = NULL;
     data->rtp_custom_data->audio_depay = NULL;
     data->rtp_custom_data->mic_volume = NULL;
-    GST_DEBUG ("Removed references to RtpCustomData pipeline elements");
+    GST_DEBUG ("Cleaned up rtp_custom_data pipeline elements");
   }
+  GST_DEBUG("Exiting gstreamer pipeline app_function.");
   return NULL;
 }
 
@@ -500,7 +517,6 @@ gst_native_init (JNIEnv *env, jobject thiz, jstring backend_type)
   SET_CUSTOM_DATA (env, thiz, custom_data_field_id, data);
   GST_DEBUG_CATEGORY_INIT (debug_category, "gstreamer-brilliant", 0,
       "GStreamer Brilliant");
-  gst_debug_set_threshold_for_name ("gstreamer-brilliant", GST_LEVEL_DEBUG);
   const gchar *backend_string = (*env)->GetStringUTFChars (env, backend_type, NULL);
   data->backend_type = malloc(strlen(backend_string));
   strcpy(data->backend_type, backend_string);
@@ -738,6 +754,9 @@ gst_native_set_mic_volume (JNIEnv *env, jobject thiz, jfloat volume)
 void
 gst_native_set_debug_logging (JNIEnv *env, jobject thiz, jstring gst_debug_string)
 {
+    // Note: When using this make sure to adjust the default level in
+    // <GstreamerAndroidRoot>/<platform>/share/gst-android/ndk-build/gstreamer_android-1.0.c.in
+    // and recompile first.
     const gchar *char_gstdebug = (*env)->GetStringUTFChars (env, gst_debug_string, NULL);
     setenv("GST_DEBUG", char_gstdebug, 1);
     gst_debug_set_default_threshold(GST_LEVEL_DEBUG);
